@@ -2,26 +2,25 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Goal, GoalScope, GoalStatus, Project, Profile } from '@/types';
-import { Target, Plus, TrendingUp, AlertTriangle, CheckCircle2, XCircle, FolderKanban } from 'lucide-react';
+import { Goal, Project, Profile, GoalStatus } from '@/types';
+import { Target, Plus, TrendingUp, AlertTriangle, CheckCircle2, FolderKanban } from 'lucide-react';
+import Link from 'next/link';
 
 export default function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [teamMembers, setTeamMembers] = useState<Profile[]>([]);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState('');
+  const [currentUserId, setCurrentUserId] = useState<string>('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [scope, setScope] = useState<GoalScope>('company');
   const [period, setPeriod] = useState('2026-Q3');
   const [targetValue, setTargetValue] = useState(100);
   const [currentValue, setCurrentValue] = useState(0);
-  const [linkedProjectId, setLinkedProjectId] = useState('');
   const [status, setStatus] = useState<GoalStatus>('on_track');
-  const [loading, setLoading] = useState(false);
+  const [linkedProjectId, setLinkedProjectId] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const supabase = createClient();
 
@@ -30,91 +29,90 @@ export default function GoalsPage() {
   }, []);
 
   const fetchGoalsData = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      setCurrentUserId(session.user.id);
-      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
-      if (profile?.role === 'admin') setIsAdmin(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) setCurrentUserId(session.user.id);
+
+      const { data: goalsData } = await supabase
+        .from('goals')
+        .select('*, linked_project:projects(*), owner:profiles(*)')
+        .order('created_at', { ascending: false });
+
+      if (goalsData) setGoals(goalsData as any);
+
+      const { data: projectsData } = await supabase.from('projects').select('*');
+      if (projectsData) setProjects(projectsData as any);
+
+      const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
+      if (teamData) setTeamMembers(teamData as any);
+    } catch (err) {
+      console.error('Fetch goals error:', err);
     }
-
-    const { data: goalsData } = await supabase
-      .from('goals')
-      .select('*, owner:profiles(*), linked_project:projects(*)')
-      .order('created_at', { ascending: false });
-
-    if (goalsData) setGoals(goalsData as any);
-
-    const { data: projectsData } = await supabase.from('projects').select('*');
-    if (projectsData) setProjects(projectsData as any);
-
-    const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
-    if (teamData) setTeamMembers(teamData as any);
   };
 
   const handleCreateGoal = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setSaving(true);
 
-    const calculatedProgress = Math.min(100, Math.round((currentValue / (targetValue || 1)) * 100));
+    try {
+      const progress = targetValue > 0 ? Math.min(100, Math.round((currentValue / targetValue) * 100)) : 0;
 
-    const { error } = await supabase.from('goals').insert({
-      title,
-      description,
-      scope,
-      period,
-      target_value: targetValue,
-      current_value: currentValue,
-      progress: calculatedProgress,
-      linked_project_id: linkedProjectId || null,
-      status,
-      owner_id: scope === 'individual' ? currentUserId : null,
-    });
+      const { error } = await supabase.from('goals').insert({
+        title,
+        description,
+        period,
+        target_value: Number(targetValue),
+        current_value: Number(currentValue),
+        progress,
+        status,
+        scope: 'company',
+        owner_id: currentUserId || null,
+        linked_project_id: linkedProjectId || null,
+      });
 
-    if (!error) {
-      setTitle('');
-      setDescription('');
-      setIsModalOpen(false);
-      fetchGoalsData();
+      if (!error) {
+        setTitle('');
+        setDescription('');
+        setIsModalOpen(false);
+        fetchGoalsData();
+      }
+    } catch (err) {
+      console.error('Create goal error:', err);
     }
-    setLoading(false);
+    setSaving(false);
   };
 
-  const handleUpdateProgress = async (goalId: string, newCurrent: number, target: number) => {
-    const calculatedProgress = Math.min(100, Math.round((newCurrent / (target || 1)) * 100));
+  const handleUpdateProgress = async (goalId: string, newCurrent: number, targetVal: number) => {
+    const progress = targetVal > 0 ? Math.min(100, Math.round((newCurrent / targetVal) * 100)) : 0;
     let newStatus: GoalStatus = 'on_track';
-    if (calculatedProgress >= 100) newStatus = 'done';
-    else if (calculatedProgress < 40) newStatus = 'at_risk';
+    if (progress >= 100) newStatus = 'done';
+    else if (progress < 40) newStatus = 'at_risk';
 
     setGoals((prev) =>
-      prev.map((g) =>
-        g.id === goalId ? { ...g, current_value: newCurrent, progress: calculatedProgress, status: newStatus } : g
-      )
+      prev.map((g) => (g.id === goalId ? { ...g, current_value: newCurrent, progress, status: newStatus } : g))
     );
 
-    await supabase
-      .from('goals')
-      .update({ current_value: newCurrent, progress: calculatedProgress, status: newStatus })
-      .eq('id', goalId);
-  };
-
-  const statusBadges = {
-    on_track: { label: 'On Track', color: 'bg-emerald-950/60 border-emerald-600 text-emerald-400', icon: TrendingUp },
-    at_risk: { label: 'At Risk', color: 'bg-amber-950/60 border-amber-600 text-amber-300', icon: AlertTriangle },
-    off_track: { label: 'Off Track', color: 'bg-red-950/60 border-[#E10600] text-red-200', icon: XCircle },
-    done: { label: 'Done', color: 'bg-blue-950/60 border-blue-600 text-blue-300', icon: CheckCircle2 },
+    try {
+      await supabase
+        .from('goals')
+        .update({ current_value: newCurrent, progress, status: newStatus })
+        .eq('id', goalId);
+    } catch (err) {
+      console.error('Update goal progress error:', err);
+    }
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
             <Target className="w-6 h-6 text-[#E10600]" />
-            Goals & OKRs (Quarterly)
+            Goals & OKRs Tracker
           </h1>
           <p className="text-xs text-[#A3A3A3] mt-1">
-            Track company Objectives & Key Results and roll up project progress.
+            Agency quarterly objectives, key results & project progress roll-ups.
           </p>
         </div>
 
@@ -122,113 +120,126 @@ export default function GoalsPage() {
           onClick={() => setIsModalOpen(true)}
           className="bg-[#E10600] hover:bg-[#FF3B3B] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#E10600]/20 transition"
         >
-          <Plus className="w-4 h-4" /> Add Objective / OKR
+          <Plus className="w-4 h-4" /> New Agency Goal
         </button>
       </div>
 
-      {/* Goals Grid */}
+      {/* Goals List */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {goals.map((goal) => {
-          const badge = statusBadges[goal.status] || statusBadges.on_track;
-          const BadgeIcon = badge.icon;
-          return (
-            <div key={goal.id} className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-4">
+        {goals.map((goal) => (
+          <div
+            key={goal.id}
+            className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-lg space-y-4 flex flex-col justify-between"
+          >
+            <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#262626] text-[#A3A3A3]">
-                  {goal.period} • {goal.scope}
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#262626] text-[#E10600]">
+                  {goal.period}
                 </span>
-
-                <span className={`px-2.5 py-0.5 rounded-full border text-xs font-semibold flex items-center gap-1 ${badge.color}`}>
-                  <BadgeIcon className="w-3.5 h-3.5" />
-                  {badge.label}
+                <span
+                  className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                    goal.status === 'done'
+                      ? 'bg-emerald-950/50 border-emerald-500 text-emerald-400'
+                      : goal.status === 'at_risk'
+                      ? 'bg-amber-950/50 border-amber-500 text-amber-400'
+                      : goal.status === 'off_track'
+                      ? 'bg-[#7A0000]/30 border-[#E10600] text-red-300'
+                      : 'bg-[#0A0A0A] border-[#262626] text-white'
+                  }`}
+                >
+                  {goal.status.replace('_', ' ')}
                 </span>
               </div>
 
-              <div>
-                <h2 className="text-base font-bold text-white mb-1">{goal.title}</h2>
-                <p className="text-xs text-[#A3A3A3]">{goal.description || 'No detailed description'}</p>
-              </div>
+              <h2 className="text-base font-bold text-white">{goal.title}</h2>
+              <p className="text-xs text-[#A3A3A3] line-clamp-2">{goal.description}</p>
+            </div>
 
-              {/* Linked Project tag */}
-              {goal.linked_project && (
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#0A0A0A] border border-[#262626] text-xs text-[#E5E5E5]">
+            {/* Linked Project Banner */}
+            {goal.linked_project && (
+              <Link
+                href={`/projects/${goal.linked_project.id}`}
+                className="p-2 bg-[#0A0A0A] border border-[#262626] hover:border-[#E10600] rounded-lg text-xs flex items-center justify-between transition group"
+              >
+                <div className="flex items-center gap-2 text-[#A3A3A3] group-hover:text-white">
                   <FolderKanban className="w-3.5 h-3.5 text-[#E10600]" />
-                  <span>Linked: {goal.linked_project.name}</span>
+                  <span>Linked Project: <strong className="text-white">{goal.linked_project.name}</strong></span>
                 </div>
-              )}
+                <span className="text-[10px] text-[#E10600]">View →</span>
+              </Link>
+            )}
 
-              {/* Progress bar */}
-              <div className="space-y-1.5 pt-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-white">Progress: {goal.progress}%</span>
-                  <span className="text-[#A3A3A3]">{goal.current_value} / {goal.target_value}</span>
-                </div>
-                <div className="w-full h-2.5 bg-[#0A0A0A] rounded-full overflow-hidden border border-[#262626]">
-                  <div
-                    className="h-full bg-[#E10600] transition-all duration-300 shadow-sm shadow-[#E10600]/50"
-                    style={{ width: `${goal.progress}%` }}
-                  />
-                </div>
+            {/* Progress Control Slider */}
+            <div className="space-y-2 pt-2 border-t border-[#262626]">
+              <div className="flex items-center justify-between text-xs text-[#A3A3A3]">
+                <span>Progress: {goal.current_value} / {goal.target_value}</span>
+                <span className="font-mono font-bold text-white">{goal.progress}%</span>
               </div>
 
-              {/* Quick progress update controls */}
-              <div className="pt-2 border-t border-[#262626] flex items-center justify-between">
-                <span className="text-[11px] text-[#737373]">Update Key Result:</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleUpdateProgress(goal.id, Math.max(0, goal.current_value - 5), goal.target_value)}
-                    className="px-2 py-1 bg-[#1F1F1F] hover:bg-[#262626] text-white text-xs rounded border border-[#333333]"
-                  >
-                    -5
-                  </button>
-                  <button
-                    onClick={() => handleUpdateProgress(goal.id, Math.min(goal.target_value, goal.current_value + 5), goal.target_value)}
-                    className="px-2 py-1 bg-[#E10600]/20 hover:bg-[#E10600]/30 text-[#FF3B3B] text-xs font-bold rounded border border-[#E10600]/40"
-                  >
-                    +5
-                  </button>
-                </div>
+              <div className="w-full bg-[#0A0A0A] border border-[#262626] h-2.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-[#E10600] to-[#FF3B3B] h-full transition-all duration-300 rounded-full"
+                  style={{ width: `${goal.progress}%` }}
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="range"
+                  min="0"
+                  max={goal.target_value || 100}
+                  value={goal.current_value || 0}
+                  onChange={(e) => handleUpdateProgress(goal.id, Number(e.target.value), goal.target_value || 100)}
+                  className="w-full accent-[#E10600] cursor-pointer"
+                />
               </div>
             </div>
-          );
-        })}
+          </div>
+        ))}
+
+        {goals.length === 0 && (
+          <div className="col-span-full p-12 text-center bg-[#141414] border border-[#262626] rounded-xl">
+            <Target className="w-10 h-10 text-[#737373] mx-auto mb-3" />
+            <p className="text-sm font-semibold text-white">No agency goals created yet</p>
+            <p className="text-xs text-[#A3A3A3] mt-1">Click &quot;New Agency Goal&quot; to set quarterly OKRs.</p>
+          </div>
+        )}
       </div>
 
-      {/* Modal */}
+      {/* New Goal Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#141414] border border-[#262626] rounded-xl w-full max-w-lg p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-[#262626] pb-3">
-              <h3 className="text-base font-bold text-white">Add Goal / OKR</h3>
+              <h3 className="text-base font-bold text-white">Create Agency OKR / Goal</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-[#737373] hover:text-white">✕</button>
             </div>
 
             <form onSubmit={handleCreateGoal} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Objective Title</label>
+                <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Goal Title</label>
                 <input
                   type="text"
                   required
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Ship Relentive OS Agency Dashboard"
+                  placeholder="e.g. Ship 4 Production SaaS Client Apps"
                   className="w-full bg-[#0A0A0A] border border-[#262626] focus:border-[#E10600] rounded-lg p-2.5 text-xs text-white outline-none"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Scope</label>
-                  <select
-                    value={scope}
-                    onChange={(e) => setScope(e.target.value as GoalScope)}
-                    className="w-full bg-[#0A0A0A] border border-[#262626] text-white rounded-lg p-2.5 text-xs outline-none"
-                  >
-                    <option value="company">Company Level</option>
-                    <option value="individual">Individual</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Description</label>
+                <textarea
+                  rows={2}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Key deliverables and measurable criteria..."
+                  className="w-full bg-[#0A0A0A] border border-[#262626] focus:border-[#E10600] rounded-lg p-2.5 text-xs text-white outline-none resize-none"
+                />
+              </div>
 
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Period</label>
                   <input
@@ -239,25 +250,39 @@ export default function GoalsPage() {
                     className="w-full bg-[#0A0A0A] border border-[#262626] text-white rounded-lg p-2.5 text-xs outline-none"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Status</label>
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value as GoalStatus)}
+                    className="w-full bg-[#0A0A0A] border border-[#262626] text-white rounded-lg p-2.5 text-xs outline-none capitalize"
+                  >
+                    <option value="on_track">On Track</option>
+                    <option value="at_risk">At Risk</option>
+                    <option value="off_track">Off Track</option>
+                    <option value="done">Done</option>
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Target Numeric Value</label>
+                  <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Current Value</label>
                   <input
                     type="number"
-                    value={targetValue}
-                    onChange={(e) => setTargetValue(Number(e.target.value))}
+                    value={currentValue}
+                    onChange={(e) => setCurrentValue(Number(e.target.value))}
                     className="w-full bg-[#0A0A0A] border border-[#262626] text-white rounded-lg p-2.5 text-xs outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Current Progress</label>
+                  <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Target Value</label>
                   <input
                     type="number"
-                    value={currentValue}
-                    onChange={(e) => setCurrentValue(Number(e.target.value))}
+                    value={targetValue}
+                    onChange={(e) => setTargetValue(Number(e.target.value))}
                     className="w-full bg-[#0A0A0A] border border-[#262626] text-white rounded-lg p-2.5 text-xs outline-none"
                   />
                 </div>
@@ -287,10 +312,10 @@ export default function GoalsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={saving}
                   className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#E10600] hover:bg-[#FF3B3B] text-white shadow-md shadow-[#E10600]/20"
                 >
-                  {loading ? 'Creating...' : 'Save Goal'}
+                  {saving ? 'Creating...' : 'Create Goal'}
                 </button>
               </div>
             </form>
