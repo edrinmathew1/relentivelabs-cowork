@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { CalendarEvent, EventType, EventScope, RecurrenceRule, Project, Profile, Task, Goal } from '@/types';
 import { CustomCalendar } from '@/components/calendar/custom-calendar';
-import { Calendar as CalendarIcon, Plus, Filter, Clock, Zap } from 'lucide-react';
+import { DateTimePicker } from '@/components/ui/date-time-picker';
+import { Calendar as CalendarIcon, Plus, Filter, Zap } from 'lucide-react';
 
 export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -82,13 +83,11 @@ export default function CalendarPage() {
     }
   };
 
-  // Helper date-time format for input
   const toLocalISO = (d: Date) => {
     const tzOffset = d.getTimezoneOffset() * 60000;
     return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
   };
 
-  // Quick Preset Handlers
   const applyPreset = (preset: 'today' | 'tomorrow' | 'in1h' | 'nextMonday') => {
     const now = new Date();
     let start = new Date();
@@ -303,10 +302,10 @@ export default function CalendarPage() {
                 />
               </div>
 
-              {/* Quick Date/Time Presets Selector */}
+              {/* Quick Presets */}
               <div>
                 <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1.5 flex items-center gap-1">
-                  <Zap className="w-3 h-3 text-[#E10600]" /> Quick Date & Time Presets
+                  <Zap className="w-3 h-3 text-[#E10600]" /> Quick Presets
                 </label>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
@@ -338,6 +337,20 @@ export default function CalendarPage() {
                     Next Monday
                   </button>
                 </div>
+              </div>
+
+              {/* Interactive Wheel Date & Time Pickers */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <DateTimePicker
+                  label="Start Date & Time (Wheel Picker)"
+                  value={startAt}
+                  onChange={(val) => setStartAt(val)}
+                />
+                <DateTimePicker
+                  label="End Date & Time (Wheel Picker)"
+                  value={endAt}
+                  onChange={(val) => setEndAt(val)}
+                />
               </div>
 
               <div>
@@ -382,29 +395,6 @@ export default function CalendarPage() {
                       />
                     ))}
                   </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Start Date & Time</label>
-                  <input
-                    type="datetime-local"
-                    required
-                    value={startAt}
-                    onChange={(e) => setStartAt(e.target.value)}
-                    className="w-full bg-[#0A0A0A] border border-[#262626] text-white rounded-lg p-2.5 text-xs outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">End Date & Time</label>
-                  <input
-                    type="datetime-local"
-                    value={endAt}
-                    onChange={(e) => setEndAt(e.target.value)}
-                    className="w-full bg-[#0A0A0A] border border-[#262626] text-white rounded-lg p-2.5 text-xs outline-none"
-                  />
                 </div>
               </div>
 
