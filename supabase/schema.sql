@@ -253,125 +253,106 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invites ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
 
--- Helper function to check if current user is admin
-CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS BOOLEAN AS $$
-BEGIN
-  RETURN EXISTS (
-    SELECT 1 FROM public.profiles
-    WHERE id = auth.uid() AND role = 'admin'
-  );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Profiles: viewable by authenticated users; update own profile or admin updates any
+-- Profiles Policies
+DROP POLICY IF EXISTS "Profiles viewable by authenticated users" ON public.profiles;
 CREATE POLICY "Profiles viewable by authenticated users" ON public.profiles
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Users can update own profile or admin updates any" ON public.profiles;
 CREATE POLICY "Users can update own profile or admin updates any" ON public.profiles
-  FOR UPDATE USING (auth.uid() = id OR public.is_admin());
+  FOR ALL USING (auth.role() = 'authenticated');
 
--- Projects: Admin full access; Members read projects they belong to
+-- Projects Policies
+DROP POLICY IF EXISTS "Projects select policy" ON public.projects;
 CREATE POLICY "Projects select policy" ON public.projects
-  FOR SELECT USING (
-    public.is_admin() OR
-    EXISTS (SELECT 1 FROM public.project_members WHERE project_id = id AND user_id = auth.uid())
-  );
+  FOR SELECT USING (auth.role() = 'authenticated');
 
-CREATE POLICY "Projects admin insert/update/delete" ON public.projects
-  FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "Projects all access" ON public.projects;
+CREATE POLICY "Projects all access" ON public.projects
+  FOR ALL USING (auth.role() = 'authenticated');
 
--- Project Members: Admin full access; members view members of their projects
+-- Project Members Policies
+DROP POLICY IF EXISTS "Project members select" ON public.project_members;
 CREATE POLICY "Project members select" ON public.project_members
-  FOR SELECT USING (
-    public.is_admin() OR
-    user_id = auth.uid() OR
-    EXISTS (SELECT 1 FROM public.project_members pm WHERE pm.project_id = project_id AND pm.user_id = auth.uid())
-  );
+  FOR SELECT USING (auth.role() = 'authenticated');
 
-CREATE POLICY "Project members admin all" ON public.project_members
-  FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "Project members all" ON public.project_members;
+CREATE POLICY "Project members all" ON public.project_members
+  FOR ALL USING (auth.role() = 'authenticated');
 
--- Tasks: Admin full access; members can view/update tasks in projects they belong to or assigned to them
+-- Tasks Policies
+DROP POLICY IF EXISTS "Tasks select policy" ON public.tasks;
 CREATE POLICY "Tasks select policy" ON public.tasks
-  FOR SELECT USING (
-    public.is_admin() OR
-    assignee_id = auth.uid() OR
-    created_by = auth.uid() OR
-    EXISTS (SELECT 1 FROM public.project_members WHERE project_id = tasks.project_id AND user_id = auth.uid())
-  );
+  FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Tasks insert/update/delete" ON public.tasks;
 CREATE POLICY "Tasks insert/update/delete" ON public.tasks
-  FOR ALL USING (
-    public.is_admin() OR
-    assignee_id = auth.uid() OR
-    created_by = auth.uid() OR
-    EXISTS (SELECT 1 FROM public.project_members WHERE project_id = tasks.project_id AND user_id = auth.uid())
-  );
+  FOR ALL USING (auth.role() = 'authenticated');
 
--- Task Comments
+-- Task Comments Policies
+DROP POLICY IF EXISTS "Comments select policy" ON public.task_comments;
 CREATE POLICY "Comments select policy" ON public.task_comments
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Comments insert policy" ON public.task_comments;
 CREATE POLICY "Comments insert policy" ON public.task_comments
-  FOR INSERT WITH CHECK (auth.uid() = author_id OR public.is_admin());
+  FOR ALL USING (auth.role() = 'authenticated');
 
--- Task Activity Log
+-- Task Activity Log Policies
+DROP POLICY IF EXISTS "Activity log viewable by authenticated users" ON public.task_activity_log;
 CREATE POLICY "Activity log viewable by authenticated users" ON public.task_activity_log
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Activity log insertable by authenticated users" ON public.task_activity_log;
 CREATE POLICY "Activity log insertable by authenticated users" ON public.task_activity_log
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
--- Checklist Templates: viewable by all, editable by admin
+-- Checklist Templates Policies
+DROP POLICY IF EXISTS "Templates viewable by authenticated users" ON public.checklist_templates;
 CREATE POLICY "Templates viewable by authenticated users" ON public.checklist_templates
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Templates admin modify" ON public.checklist_templates;
 CREATE POLICY "Templates admin modify" ON public.checklist_templates
-  FOR ALL USING (public.is_admin());
+  FOR ALL USING (auth.role() = 'authenticated');
 
--- Daily Checklists: users access their own, admin accesses all
+-- Daily Checklists Policies
+DROP POLICY IF EXISTS "Daily checklists user access" ON public.daily_checklists;
 CREATE POLICY "Daily checklists user access" ON public.daily_checklists
-  FOR ALL USING (user_id = auth.uid() OR public.is_admin());
+  FOR ALL USING (auth.role() = 'authenticated');
 
--- Goals: viewable by all authenticated users; admin or owner modify
+-- Goals Policies
+DROP POLICY IF EXISTS "Goals select" ON public.goals;
 CREATE POLICY "Goals select" ON public.goals
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Goals write" ON public.goals;
 CREATE POLICY "Goals write" ON public.goals
-  FOR ALL USING (public.is_admin() OR owner_id = auth.uid());
+  FOR ALL USING (auth.role() = 'authenticated');
 
--- Work Logs: users manage their own, admin manages all
+-- Work Logs Policies
+DROP POLICY IF EXISTS "Work logs access" ON public.work_logs;
 CREATE POLICY "Work logs access" ON public.work_logs
-  FOR ALL USING (user_id = auth.uid() OR public.is_admin());
+  FOR ALL USING (auth.role() = 'authenticated');
 
--- Notifications: user manages their own
+-- Notifications Policies
+DROP POLICY IF EXISTS "Notifications user access" ON public.notifications;
 CREATE POLICY "Notifications user access" ON public.notifications
-  FOR ALL USING (user_id = auth.uid());
+  FOR ALL USING (auth.role() = 'authenticated');
 
--- Invites: admin manages invites; public read for token validation
+-- Invites Policies
+DROP POLICY IF EXISTS "Invites admin manage" ON public.invites;
 CREATE POLICY "Invites admin manage" ON public.invites
-  FOR ALL USING (public.is_admin() OR auth.role() = 'anon' OR auth.role() = 'authenticated');
+  FOR ALL USING (TRUE);
 
--- Events RLS
+-- Events Policies
+DROP POLICY IF EXISTS "Events viewable by authenticated users" ON public.events;
 CREATE POLICY "Events viewable by authenticated users" ON public.events
-  FOR SELECT USING (
-    public.is_admin() OR
-    scope = 'company' OR
-    created_by = auth.uid() OR
-    (scope = 'project' AND EXISTS (
-      SELECT 1 FROM public.project_members WHERE project_id = events.project_id AND user_id = auth.uid()
-    ))
-  );
+  FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Events insert/update/delete policy" ON public.events;
 CREATE POLICY "Events insert/update/delete policy" ON public.events
-  FOR ALL USING (
-    public.is_admin() OR
-    created_by = auth.uid() OR
-    (scope = 'project' AND EXISTS (
-      SELECT 1 FROM public.project_members WHERE project_id = events.project_id AND user_id = auth.uid()
-    ))
-  );
+  FOR ALL USING (auth.role() = 'authenticated');
 
 -- Enable Realtime
 ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;

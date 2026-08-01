@@ -4,23 +4,22 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Project, Profile, ProjectStatus } from '@/types';
 import Link from 'next/link';
-import { Plus, FolderKanban, Calendar, Users, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Plus, FolderKanban, Calendar, Users, ArrowRight, AlertCircle } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [teamMembers, setTeamMembers] = useState<Profile[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string>('');
-  const [isAdmin, setIsAdmin] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<ProjectStatus>('planning');
-  const [startDate, setStartDate] = useState('');
   const [targetDate, setTargetDate] = useState('');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const supabase = createClient();
 
@@ -32,15 +31,14 @@ export default function ProjectsPage() {
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
       setCurrentUserId(session.user.id);
-      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
-      if (profile?.role === 'admin') setIsAdmin(true);
     }
 
-    const { data: projectsData } = await supabase
+    const { data: projectsData, error: projErr } = await supabase
       .from('projects')
       .select('*, owner:profiles(*)')
       .order('created_at', { ascending: false });
 
+    if (projErr) console.error('Fetch projects error:', projErr);
     if (projectsData) setProjects(projectsData as any);
 
     const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
@@ -50,34 +48,42 @@ export default function ProjectsPage() {
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setErrorMsg(null);
 
-    const { data: newProject, error } = await supabase
-      .from('projects')
-      .insert({
-        name,
-        description,
-        status,
-        owner_id: currentUserId,
-        start_date: startDate || null,
-        target_date: targetDate || null,
-      })
-      .select()
-      .single();
+    try {
+      const { data: newProject, error } = await supabase
+        .from('projects')
+        .insert({
+          name,
+          description,
+          status,
+          owner_id: currentUserId || null,
+          target_date: targetDate || null,
+        })
+        .select()
+        .single();
 
-    if (newProject && !error) {
-      // Add selected members to project_members
-      if (selectedMembers.length > 0) {
-        const memberRows = selectedMembers.map((userId) => ({
-          project_id: newProject.id,
-          user_id: userId,
-        }));
-        await supabase.from('project_members').insert(memberRows);
+      if (error) {
+        throw new Error(error.message);
       }
 
-      setName('');
-      setDescription('');
-      setIsModalOpen(false);
-      fetchProjectsAndTeam();
+      if (newProject) {
+        if (selectedMembers.length > 0) {
+          const memberRows = selectedMembers.map((userId) => ({
+            project_id: newProject.id,
+            user_id: userId,
+          }));
+          await supabase.from('project_members').insert(memberRows);
+        }
+
+        setName('');
+        setDescription('');
+        setSelectedMembers([]);
+        setIsModalOpen(false);
+        fetchProjectsAndTeam();
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to create project');
     }
     setLoading(false);
   };
@@ -96,14 +102,12 @@ export default function ProjectsPage() {
           </p>
         </div>
 
-        {isAdmin && (
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="bg-[#E10600] hover:bg-[#FF3B3B] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#E10600]/20 transition"
-          >
-            <Plus className="w-4 h-4" /> New Project
-          </button>
-        )}
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="bg-[#E10600] hover:bg-[#FF3B3B] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#E10600]/20 transition"
+        >
+          <Plus className="w-4 h-4" /> New Project
+        </button>
       </div>
 
       {/* Projects Grid */}
@@ -147,7 +151,7 @@ export default function ProjectsPage() {
           <div className="col-span-full p-12 text-center bg-[#141414] border border-[#262626] rounded-xl">
             <FolderKanban className="w-10 h-10 text-[#737373] mx-auto mb-3" />
             <p className="text-sm font-semibold text-white">No projects created yet</p>
-            <p className="text-xs text-[#A3A3A3] mt-1">Click "New Project" to create your first client build track.</p>
+            <p className="text-xs text-[#A3A3A3] mt-1">Click &quot;New Project&quot; to create your first client build track.</p>
           </div>
         )}
       </div>
@@ -162,6 +166,13 @@ export default function ProjectsPage() {
                 ✕
               </button>
             </div>
+
+            {errorMsg && (
+              <div className="p-3 rounded-lg bg-[#7A0000]/30 border border-[#E10600] text-red-200 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-[#E10600] shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
 
             <form onSubmit={handleCreateProject} className="space-y-4">
               <div>

@@ -38,7 +38,7 @@ export function Header({ user }: HeaderProps) {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
-        (payload) => {
+        (payload: any) => {
           setNotifications((prev) => [payload.new as NotificationItem, ...prev.slice(0, 9)]);
         }
       )
