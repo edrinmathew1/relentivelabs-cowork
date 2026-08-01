@@ -354,10 +354,35 @@ DROP POLICY IF EXISTS "Events insert/update/delete policy" ON public.events;
 CREATE POLICY "Events insert/update/delete policy" ON public.events
   FOR ALL USING (auth.role() = 'authenticated');
 
--- Enable Realtime
-ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.events;
+-- Safely add tables to Realtime publication without duplicate error
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_rel
+    WHERE prpubid = (SELECT oid FROM pg_publication WHERE pubname = 'supabase_realtime')
+      AND prrelid = 'public.tasks'::regclass
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_rel
+    WHERE prpubid = (SELECT oid FROM pg_publication WHERE pubname = 'supabase_realtime')
+      AND prrelid = 'public.notifications'::regclass
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_rel
+    WHERE prpubid = (SELECT oid FROM pg_publication WHERE pubname = 'supabase_realtime')
+      AND prrelid = 'public.events'::regclass
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.events;
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END $$;
 
 -- ========================================================
 -- SEED DATA
