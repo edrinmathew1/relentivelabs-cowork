@@ -28,21 +28,34 @@ export default function ProjectsPage() {
   }, []);
 
   const fetchProjectsAndTeam = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      setCurrentUserId(session.user.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setCurrentUserId(session.user.id);
+      }
+
+      // Query with resilient fallback
+      let { data: projectsData, error: projErr } = await supabase
+        .from('projects')
+        .select('*, owner:profiles!owner_id(*)')
+        .order('created_at', { ascending: false });
+
+      if (projErr || !projectsData) {
+        console.warn('Projects join query fallback, fetching basic rows:', projErr);
+        const { data: fallbackData } = await supabase
+          .from('projects')
+          .select('*')
+          .order('created_at', { ascending: false });
+        projectsData = fallbackData;
+      }
+
+      if (projectsData) setProjects(projectsData as any);
+
+      const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
+      if (teamData) setTeamMembers(teamData as any);
+    } catch (err) {
+      console.error('Fetch projects error:', err);
     }
-
-    const { data: projectsData, error: projErr } = await supabase
-      .from('projects')
-      .select('*, owner:profiles(*)')
-      .order('created_at', { ascending: false });
-
-    if (projErr) console.error('Fetch projects error:', projErr);
-    if (projectsData) setProjects(projectsData as any);
-
-    const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
-    if (teamData) setTeamMembers(teamData as any);
   };
 
   const handleCreateProject = async (e: React.FormEvent) => {
@@ -60,10 +73,11 @@ export default function ProjectsPage() {
           owner_id: currentUserId || null,
           target_date: targetDate || null,
         })
-        .select()
+        .select('*')
         .single();
 
       if (error) {
+        console.error('Project insert error:', error);
         throw new Error(error.message);
       }
 
@@ -80,7 +94,7 @@ export default function ProjectsPage() {
         setDescription('');
         setSelectedMembers([]);
         setIsModalOpen(false);
-        fetchProjectsAndTeam();
+        await fetchProjectsAndTeam();
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to create project');

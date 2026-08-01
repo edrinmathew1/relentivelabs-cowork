@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Task, TaskStatus, Profile, Project } from '@/types';
 import { KanbanBoard } from '@/components/tasks/kanban-board';
 import { TaskModal } from '@/components/tasks/task-modal';
-import { LayoutGrid, List, Calendar as CalendarIcon, Plus, Filter, Flame } from 'lucide-react';
+import { LayoutGrid, List, Calendar as CalendarIcon, Plus, Filter, Flame, AlertCircle } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 export default function TasksPage() {
@@ -17,6 +17,7 @@ export default function TasksPage() {
   const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'calendar'>('kanban');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Filters
   const [filterProject, setFilterProject] = useState<string>('all');
@@ -42,69 +43,116 @@ export default function TasksPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [supabase]);
+  }, []);
 
   const fetchInitialData = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) setCurrentUserId(session.user.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) setCurrentUserId(session.user.id);
 
-    const { data: tasksData } = await supabase
-      .from('tasks')
-      .select('*, assignee:profiles(*), project:projects(*)')
-      .order('position', { ascending: true });
+      // Fetch projects first
+      const { data: projectsData } = await supabase.from('projects').select('*');
+      if (projectsData) setProjects(projectsData as any);
 
-    if (tasksData) setTasks(tasksData as any);
+      // Resilient tasks query
+      let { data: tasksData, error: taskErr } = await supabase
+        .from('tasks')
+        .select('*, assignee:profiles!assignee_id(*), project:projects!project_id(*)')
+        .order('position', { ascending: true });
 
-    const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
-    if (teamData) setTeamMembers(teamData as any);
+      if (taskErr || !tasksData) {
+        console.warn('Tasks join fallback, fetching raw tasks:', taskErr);
+        const { data: fallbackTasks } = await supabase
+          .from('tasks')
+          .select('*')
+          .order('position', { ascending: true });
+        tasksData = fallbackTasks;
+      }
 
-    const { data: projectsData } = await supabase.from('projects').select('*');
-    if (projectsData) setProjects(projectsData as any);
+      if (tasksData) setTasks(tasksData as any);
+
+      const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
+      if (teamData) setTeamMembers(teamData as any);
+    } catch (err) {
+      console.error('Fetch initial tasks error:', err);
+    }
   };
 
   const handleTaskMove = async (taskId: string, newStatus: TaskStatus, newPosition: number) => {
-    // Optimistic UI update
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, position: newPosition } : t))
     );
 
-    const { error } = await supabase
-      .from('tasks')
-      .update({ status: newStatus, position: newPosition })
-      .eq('id', taskId);
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ status: newStatus, position: newPosition })
+        .eq('id', taskId);
 
-    if (!error && currentUserId) {
-      await supabase.from('task_activity_log').insert({
-        task_id: taskId,
-        actor_id: currentUserId,
-        action: 'status_changed',
-        meta: { to: newStatus },
-      });
+      if (!error && currentUserId) {
+        await supabase.from('task_activity_log').insert({
+          task_id: taskId,
+          actor_id: currentUserId,
+          action: 'status_changed',
+          meta: { to: newStatus },
+        });
+      }
+    } catch (err) {
+      console.error('Task move DB error:', err);
     }
   };
 
   const handleCreateNewTask = async (defaultStatus: TaskStatus = 'todo') => {
-    if (!projects || projects.length === 0) {
-      alert('Please create a project first before adding tasks.');
-      return;
-    }
+    setErrorMsg(null);
 
-    const { data: newTask } = await supabase
-      .from('tasks')
-      .insert({
-        title: 'New Agency Task',
-        status: defaultStatus,
-        project_id: projects[0].id,
-        created_by: currentUserId,
-        priority: 'medium',
-      })
-      .select('*, assignee:profiles(*), project:projects(*)')
-      .single();
+    try {
+      let targetProjectId = projects.length > 0 ? projects[0].id : null;
 
-    if (newTask) {
-      setTasks((prev) => [...prev, newTask as any]);
-      setSelectedTask(newTask as any);
-      setIsModalOpen(true);
+      // Auto-create a default project if none exists yet
+      if (!targetProjectId) {
+        const { data: autoProject, error: projErr } = await supabase
+          .from('projects')
+          .insert({
+            name: 'General Agency Board',
+            description: 'Default project track',
+            status: 'active',
+            owner_id: currentUserId || null,
+          })
+          .select()
+          .single();
+
+        if (projErr || !autoProject) {
+          throw new Error('Failed to create project for task. ' + (projErr?.message || ''));
+        }
+
+        targetProjectId = autoProject.id;
+        setProjects([autoProject as any]);
+      }
+
+      const { data: newTask, error: insertErr } = await supabase
+        .from('tasks')
+        .insert({
+          title: 'New Agency Task',
+          status: defaultStatus,
+          project_id: targetProjectId,
+          created_by: currentUserId || null,
+          priority: 'medium',
+        })
+        .select('*')
+        .single();
+
+      if (insertErr || !newTask) {
+        throw new Error(insertErr?.message || 'Failed to insert task');
+      }
+
+      if (newTask) {
+        setTasks((prev) => [...prev, newTask as any]);
+        setSelectedTask(newTask as any);
+        setIsModalOpen(true);
+      }
+    } catch (err: any) {
+      console.error('Create task error:', err);
+      setErrorMsg(err.message || 'Could not add task.');
     }
   };
 
@@ -163,6 +211,13 @@ export default function TasksPage() {
           </button>
         </div>
       </div>
+
+      {errorMsg && (
+        <div className="p-3 rounded-lg bg-[#7A0000]/30 border border-[#E10600] text-red-200 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-[#E10600] shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div className="flex items-center gap-3 p-2.5 bg-[#141414] border border-[#262626] rounded-lg text-xs">
