@@ -1,22 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import { createClient } from '@/lib/supabase/client';
 import { CalendarEvent, EventType, EventScope, RecurrenceRule, Project, Profile, Task, Goal } from '@/types';
+import { CustomCalendar } from '@/components/calendar/custom-calendar';
 import { Calendar as CalendarIcon, Plus, Filter } from 'lucide-react';
-
-const FullCalendarWrapper = dynamic(
-  () => import('@/components/calendar/full-calendar-wrapper'),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="p-12 text-center text-xs text-[#A3A3A3] animate-pulse">
-        Loading Calendar OS Schedule...
-      </div>
-    ),
-  }
-);
 
 export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -72,22 +60,19 @@ export default function CalendarPage() {
 
       const { data: eventsData } = await supabase
         .from('events')
-        .select('*, project:projects(*), creator:profiles(*)')
+        .select('*')
         .order('start_at', { ascending: true });
 
       if (eventsData) setEvents(eventsData as any);
 
       const { data: tasksData } = await supabase
         .from('tasks')
-        .select('*, project:projects(*)')
+        .select('*')
         .not('due_date', 'is', null);
 
       if (tasksData) setTasks(tasksData as any);
 
-      const { data: goalsData } = await supabase
-        .from('goals')
-        .select('*, linked_project:projects(*)');
-
+      const { data: goalsData } = await supabase.from('goals').select('*');
       if (goalsData) setGoals(goalsData as any);
 
       const { data: projectsData } = await supabase.from('projects').select('*');
@@ -132,7 +117,7 @@ export default function CalendarPage() {
     setSaving(false);
   };
 
-  const fullCalendarItems = [
+  const formattedCalendarItems = [
     ...(events || [])
       .filter((e) => {
         if (!e) return false;
@@ -147,9 +132,9 @@ export default function CalendarPage() {
         start: e.start_at,
         end: e.end_at || undefined,
         allDay: Boolean(e.all_day),
-        backgroundColor: e.color || '#E10600',
-        borderColor: e.color || '#E10600',
-        textColor: '#FFFFFF',
+        color: e.color || '#E10600',
+        type: e.event_type,
+        raw: e,
       })),
 
     ...(tasks || [])
@@ -162,12 +147,12 @@ export default function CalendarPage() {
       })
       .map((t) => ({
         id: `task-${t.id}`,
-        title: `📌 Task Due: ${t.title || ''}`,
-        start: t.due_date,
+        title: `📌 Task: ${t.title || ''}`,
+        start: t.due_date || new Date().toISOString().split('T')[0],
         allDay: true,
-        backgroundColor: t.priority === 'urgent' ? '#7A0000' : '#141414',
-        borderColor: t.priority === 'urgent' ? '#E10600' : '#262626',
-        textColor: t.priority === 'urgent' ? '#FF3B3B' : '#E5E5E5',
+        color: t.priority === 'urgent' ? '#7A0000' : '#E10600',
+        type: 'task_due',
+        raw: t,
       })),
 
     ...(goals || [])
@@ -179,12 +164,12 @@ export default function CalendarPage() {
       })
       .map((g) => ({
         id: `goal-${g.id}`,
-        title: `🎯 Goal Target: ${g.title || ''}`,
+        title: `🎯 Goal: ${g.title || ''}`,
         start: new Date().toISOString().split('T')[0],
         allDay: true,
-        backgroundColor: '#0F291E',
-        borderColor: '#3FBF6C',
-        textColor: '#3FBF6C',
+        color: '#3FBF6C',
+        type: 'goal_end',
+        raw: g,
       })),
   ];
 
@@ -255,10 +240,8 @@ export default function CalendarPage() {
         </label>
       </div>
 
-      {/* Dynamic FullCalendar Container */}
-      <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl overflow-hidden text-xs text-white">
-        <FullCalendarWrapper events={fullCalendarItems} />
-      </div>
+      {/* Zero-Dependency Custom Dark-Mode Calendar */}
+      <CustomCalendar events={formattedCalendarItems} />
 
       {/* Add Event Modal */}
       {isModalOpen && (
