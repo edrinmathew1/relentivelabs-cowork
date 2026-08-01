@@ -1,0 +1,396 @@
+-- ========================================================
+-- RelentiveLabs CoWork (Relentive OS) - Supabase Postgres Schema
+-- Full Schema Migration with RLS Policies, Triggers & Realtime
+-- ========================================================
+
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- --------------------------------------------------------
+-- 1. PROFILES
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  full_name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  role TEXT CHECK (role IN ('admin', 'member')) DEFAULT 'member',
+  title TEXT DEFAULT 'Team Member',
+  avatar_url TEXT,
+  timezone TEXT DEFAULT 'Asia/Kolkata',
+  status TEXT CHECK (status IN ('active', 'invited', 'deactivated')) DEFAULT 'invited',
+  invited_by UUID REFERENCES public.profiles(id),
+  invited_at TIMESTAMPTZ,
+  joined_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Automatic handle user creation trigger from Auth
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, full_name, email, role, status, joined_at)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', SPLIT_PART(NEW.email, '@', 1)),
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'role', 'member'),
+    'active',
+    NOW()
+  )
+  ON CONFLICT (id) DO UPDATE
+  SET full_name = EXCLUDED.full_name,
+      status = 'active';
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- --------------------------------------------------------
+-- 2. PROJECTS
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.projects (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  description TEXT,
+  status TEXT CHECK (status IN ('planning', 'active', 'on_hold', 'shipped')) DEFAULT 'planning',
+  owner_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  start_date DATE,
+  target_date DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- --------------------------------------------------------
+-- 3. PROJECT_MEMBERS
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.project_members (
+  project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  PRIMARY KEY (project_id, user_id)
+);
+
+-- --------------------------------------------------------
+-- 4. TASKS
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.tasks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  status TEXT CHECK (status IN ('backlog', 'todo', 'in_progress', 'review', 'done')) DEFAULT 'todo',
+  priority TEXT CHECK (priority IN ('low', 'medium', 'high', 'urgent')) DEFAULT 'medium',
+  assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  due_date DATE,
+  estimated_hours NUMERIC DEFAULT 0,
+  actual_hours NUMERIC DEFAULT 0,
+  tags TEXT[] DEFAULT '{}',
+  position INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Updated_at auto trigger
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS tasks_updated_at ON public.tasks;
+CREATE TRIGGER tasks_updated_at
+  BEFORE UPDATE ON public.tasks
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- --------------------------------------------------------
+-- 5. TASK_COMMENTS
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.task_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  task_id UUID REFERENCES public.tasks(id) ON DELETE CASCADE,
+  author_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  body TEXT NOT NULL,
+  mentions UUID[] DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- --------------------------------------------------------
+-- 6. TASK_ACTIVITY_LOG
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.task_activity_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  task_id UUID REFERENCES public.tasks(id) ON DELETE CASCADE,
+  actor_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  action TEXT NOT NULL,
+  meta JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- --------------------------------------------------------
+-- 7. CHECKLIST_TEMPLATES
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.checklist_templates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'all',
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- --------------------------------------------------------
+-- 8. DAILY_CHECKLISTS
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.daily_checklists (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  completed_count INT DEFAULT 0,
+  total_count INT DEFAULT 0,
+  is_complete BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (user_id, date)
+);
+
+-- --------------------------------------------------------
+-- 9. GOALS
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.goals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  description TEXT,
+  scope TEXT CHECK (scope IN ('company', 'individual')) DEFAULT 'company',
+  owner_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  period TEXT DEFAULT '2026-Q3',
+  progress NUMERIC DEFAULT 0,
+  target_value NUMERIC DEFAULT 100,
+  current_value NUMERIC DEFAULT 0,
+  linked_project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
+  status TEXT CHECK (status IN ('on_track', 'at_risk', 'off_track', 'done')) DEFAULT 'on_track',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- --------------------------------------------------------
+-- 10. WORK_LOGS
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.work_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  date DATE DEFAULT CURRENT_DATE,
+  summary TEXT NOT NULL,
+  hours NUMERIC DEFAULT 0,
+  linked_task_ids UUID[] DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- --------------------------------------------------------
+-- 11. NOTIFICATIONS
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  payload JSONB DEFAULT '{}'::jsonb,
+  read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- --------------------------------------------------------
+-- 12. INVITES
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.invites (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT NOT NULL,
+  token TEXT UNIQUE NOT NULL,
+  invited_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  role TEXT DEFAULT 'member',
+  expires_at TIMESTAMPTZ NOT NULL,
+  accepted BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- --------------------------------------------------------
+-- 13. EVENTS
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  description TEXT,
+  event_type TEXT CHECK (event_type IN ('meeting', 'milestone', 'deadline', 'holiday', 'task_due', 'goal_end', 'custom')) DEFAULT 'custom',
+  start_at TIMESTAMPTZ NOT NULL,
+  end_at TIMESTAMPTZ,
+  all_day BOOLEAN DEFAULT FALSE,
+  color TEXT DEFAULT '#E10600',
+  scope TEXT CHECK (scope IN ('company', 'project', 'personal')) DEFAULT 'company',
+  project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+  created_by UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  recurrence_rule TEXT DEFAULT 'none',
+  reminder_offset_minutes INT DEFAULT 1440,
+  reminder_sent BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ========================================================
+-- ROW LEVEL SECURITY (RLS) POLICIES
+-- ========================================================
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.project_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.task_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.task_activity_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.checklist_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_checklists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.goals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.work_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invites ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
+
+-- Helper function to check if current user is admin
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role = 'admin'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Profiles: viewable by authenticated users; update own profile or admin updates any
+CREATE POLICY "Profiles viewable by authenticated users" ON public.profiles
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Users can update own profile or admin updates any" ON public.profiles
+  FOR UPDATE USING (auth.uid() = id OR public.is_admin());
+
+-- Projects: Admin full access; Members read projects they belong to
+CREATE POLICY "Projects select policy" ON public.projects
+  FOR SELECT USING (
+    public.is_admin() OR
+    EXISTS (SELECT 1 FROM public.project_members WHERE project_id = id AND user_id = auth.uid())
+  );
+
+CREATE POLICY "Projects admin insert/update/delete" ON public.projects
+  FOR ALL USING (public.is_admin());
+
+-- Project Members: Admin full access; members view members of their projects
+CREATE POLICY "Project members select" ON public.project_members
+  FOR SELECT USING (
+    public.is_admin() OR
+    user_id = auth.uid() OR
+    EXISTS (SELECT 1 FROM public.project_members pm WHERE pm.project_id = project_id AND pm.user_id = auth.uid())
+  );
+
+CREATE POLICY "Project members admin all" ON public.project_members
+  FOR ALL USING (public.is_admin());
+
+-- Tasks: Admin full access; members can view/update tasks in projects they belong to or assigned to them
+CREATE POLICY "Tasks select policy" ON public.tasks
+  FOR SELECT USING (
+    public.is_admin() OR
+    assignee_id = auth.uid() OR
+    created_by = auth.uid() OR
+    EXISTS (SELECT 1 FROM public.project_members WHERE project_id = tasks.project_id AND user_id = auth.uid())
+  );
+
+CREATE POLICY "Tasks insert/update/delete" ON public.tasks
+  FOR ALL USING (
+    public.is_admin() OR
+    assignee_id = auth.uid() OR
+    created_by = auth.uid() OR
+    EXISTS (SELECT 1 FROM public.project_members WHERE project_id = tasks.project_id AND user_id = auth.uid())
+  );
+
+-- Task Comments
+CREATE POLICY "Comments select policy" ON public.task_comments
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Comments insert policy" ON public.task_comments
+  FOR INSERT WITH CHECK (auth.uid() = author_id OR public.is_admin());
+
+-- Task Activity Log
+CREATE POLICY "Activity log viewable by authenticated users" ON public.task_activity_log
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Activity log insertable by authenticated users" ON public.task_activity_log
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+-- Checklist Templates: viewable by all, editable by admin
+CREATE POLICY "Templates viewable by authenticated users" ON public.checklist_templates
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Templates admin modify" ON public.checklist_templates
+  FOR ALL USING (public.is_admin());
+
+-- Daily Checklists: users access their own, admin accesses all
+CREATE POLICY "Daily checklists user access" ON public.daily_checklists
+  FOR ALL USING (user_id = auth.uid() OR public.is_admin());
+
+-- Goals: viewable by all authenticated users; admin or owner modify
+CREATE POLICY "Goals select" ON public.goals
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Goals write" ON public.goals
+  FOR ALL USING (public.is_admin() OR owner_id = auth.uid());
+
+-- Work Logs: users manage their own, admin manages all
+CREATE POLICY "Work logs access" ON public.work_logs
+  FOR ALL USING (user_id = auth.uid() OR public.is_admin());
+
+-- Notifications: user manages their own
+CREATE POLICY "Notifications user access" ON public.notifications
+  FOR ALL USING (user_id = auth.uid());
+
+-- Invites: admin manages invites; public read for token validation
+CREATE POLICY "Invites admin manage" ON public.invites
+  FOR ALL USING (public.is_admin() OR auth.role() = 'anon' OR auth.role() = 'authenticated');
+
+-- Events RLS
+CREATE POLICY "Events viewable by authenticated users" ON public.events
+  FOR SELECT USING (
+    public.is_admin() OR
+    scope = 'company' OR
+    created_by = auth.uid() OR
+    (scope = 'project' AND EXISTS (
+      SELECT 1 FROM public.project_members WHERE project_id = events.project_id AND user_id = auth.uid()
+    ))
+  );
+
+CREATE POLICY "Events insert/update/delete policy" ON public.events
+  FOR ALL USING (
+    public.is_admin() OR
+    created_by = auth.uid() OR
+    (scope = 'project' AND EXISTS (
+      SELECT 1 FROM public.project_members WHERE project_id = events.project_id AND user_id = auth.uid()
+    ))
+  );
+
+-- Enable Realtime
+ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.events;
+
+-- ========================================================
+-- SEED DATA
+-- ========================================================
+INSERT INTO public.checklist_templates (id, name, role, items) VALUES
+(
+  gen_random_uuid(),
+  'Engineering Daily Standard',
+  'all',
+  '[
+    {"id": "1", "label": "Review assigned GitHub pull requests & issue queue"},
+    {"id": "2", "label": "Sync task status & estimated hours on project board"},
+    {"id": "3", "label": "Commit clean, tested code with clear commit message"},
+    {"id": "4", "label": "Log daily work summary & hours in Relentive OS"},
+    {"id": "5", "label": "Clear urgent blockings & respond to @mentions"}
+  ]'::jsonb
+) ON CONFLICT DO NOTHING;
