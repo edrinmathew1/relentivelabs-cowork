@@ -1,13 +1,22 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import FullCalendar from '@fullcalendar/react';
-import dayGridPlugin from '@fullcalendar/daygrid';
-import timeGridPlugin from '@fullcalendar/timegrid';
-import interactionPlugin from '@fullcalendar/interaction';
+import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { createClient } from '@/lib/supabase/client';
 import { CalendarEvent, EventType, EventScope, RecurrenceRule, Project, Profile, Task, Goal } from '@/types';
 import { Calendar as CalendarIcon, Plus, Filter } from 'lucide-react';
+
+const FullCalendarWrapper = dynamic(
+  () => import('@/components/calendar/full-calendar-wrapper'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="p-12 text-center text-xs text-[#A3A3A3] animate-pulse">
+        Loading Calendar OS Schedule...
+      </div>
+    ),
+  }
+);
 
 export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -21,7 +30,7 @@ export default function CalendarPage() {
   const [filterProject, setFilterProject] = useState<string>('all');
   const [myEventsOnly, setMyEventsOnly] = useState(false);
 
-  // Create/Edit Event Modal state
+  // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -33,16 +42,14 @@ export default function CalendarPage() {
   const [scope, setScope] = useState<EventScope>('company');
   const [projectId, setProjectId] = useState('');
   const [recurrenceRule, setRecurrenceRule] = useState<RecurrenceRule>('none');
-  const [reminderOffset, setReminderOffset] = useState<number>(1440); // 1 day before default
+  const [reminderOffset, setReminderOffset] = useState<number>(1440);
   const [saving, setSaving] = useState(false);
 
-  const calendarRef = useRef<any>(null);
   const supabase = createClient();
 
   useEffect(() => {
     fetchCalendarData();
 
-    // Realtime subscription for events
     const channel = supabase
       .channel('calendar-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => {
@@ -56,39 +63,38 @@ export default function CalendarPage() {
   }, []);
 
   const fetchCalendarData = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
 
-    // Fetch user profile
-    const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-    if (profile) setCurrentProfile(profile as any);
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+      if (profile) setCurrentProfile(profile as any);
 
-    // Fetch manual events
-    const { data: eventsData } = await supabase
-      .from('events')
-      .select('*, project:projects(*), creator:profiles(*)')
-      .order('start_at', { ascending: true });
+      const { data: eventsData } = await supabase
+        .from('events')
+        .select('*, project:projects(*), creator:profiles(*)')
+        .order('start_at', { ascending: true });
 
-    if (eventsData) setEvents(eventsData as any);
+      if (eventsData) setEvents(eventsData as any);
 
-    // Fetch task due dates
-    const { data: tasksData } = await supabase
-      .from('tasks')
-      .select('*, project:projects(*)')
-      .not('due_date', 'is', null);
+      const { data: tasksData } = await supabase
+        .from('tasks')
+        .select('*, project:projects(*)')
+        .not('due_date', 'is', null);
 
-    if (tasksData) setTasks(tasksData as any);
+      if (tasksData) setTasks(tasksData as any);
 
-    // Fetch goal period dates
-    const { data: goalsData } = await supabase
-      .from('goals')
-      .select('*, linked_project:projects(*)');
+      const { data: goalsData } = await supabase
+        .from('goals')
+        .select('*, linked_project:projects(*)');
 
-    if (goalsData) setGoals(goalsData as any);
+      if (goalsData) setGoals(goalsData as any);
 
-    // Fetch projects list for dropdowns
-    const { data: projectsData } = await supabase.from('projects').select('*');
-    if (projectsData) setProjects(projectsData as any);
+      const { data: projectsData } = await supabase.from('projects').select('*');
+      if (projectsData) setProjects(projectsData as any);
+    } catch (err) {
+      console.error('Calendar fetch error:', err);
+    }
   };
 
   const handleCreateEvent = async (e: React.FormEvent) => {
@@ -97,36 +103,39 @@ export default function CalendarPage() {
 
     setSaving(true);
 
-    const { error } = await supabase.from('events').insert({
-      title,
-      description,
-      event_type: eventType,
-      start_at: startAt || new Date().toISOString(),
-      end_at: endAt || null,
-      all_day: allDay,
-      color,
-      scope: currentProfile.role === 'admin' ? scope : 'personal',
-      project_id: projectId || null,
-      created_by: currentProfile.id,
-      recurrence_rule: recurrenceRule,
-      reminder_offset_minutes: Number(reminderOffset),
-      reminder_sent: false,
-    });
+    try {
+      const { error } = await supabase.from('events').insert({
+        title,
+        description,
+        event_type: eventType,
+        start_at: startAt || new Date().toISOString(),
+        end_at: endAt || null,
+        all_day: allDay,
+        color,
+        scope: currentProfile.role === 'admin' ? scope : 'personal',
+        project_id: projectId || null,
+        created_by: currentProfile.id,
+        recurrence_rule: recurrenceRule,
+        reminder_offset_minutes: Number(reminderOffset),
+        reminder_sent: false,
+      });
 
-    if (!error) {
-      setTitle('');
-      setDescription('');
-      setIsModalOpen(false);
-      fetchCalendarData();
+      if (!error) {
+        setTitle('');
+        setDescription('');
+        setIsModalOpen(false);
+        fetchCalendarData();
+      }
+    } catch (err) {
+      console.error('Event creation error:', err);
     }
     setSaving(false);
   };
 
-  // Convert auto-pulled tasks, goals, & manual events into FullCalendar items
   const fullCalendarItems = [
-    // Manual Events
-    ...events
+    ...(events || [])
       .filter((e) => {
+        if (!e) return false;
         if (myEventsOnly && e.created_by !== currentProfile?.id) return false;
         if (filterType !== 'all' && e.event_type !== filterType) return false;
         if (filterProject !== 'all' && e.project_id !== filterProject) return false;
@@ -134,18 +143,18 @@ export default function CalendarPage() {
       })
       .map((e) => ({
         id: `event-${e.id}`,
-        title: `[${e.event_type.toUpperCase()}] ${e.title}`,
+        title: `[${(e.event_type || 'event').toUpperCase()}] ${e.title || ''}`,
         start: e.start_at,
         end: e.end_at || undefined,
-        allDay: e.all_day,
+        allDay: Boolean(e.all_day),
         backgroundColor: e.color || '#E10600',
         borderColor: e.color || '#E10600',
         textColor: '#FFFFFF',
       })),
 
-    // Auto-pulled Task Due Dates
-    ...tasks
+    ...(tasks || [])
       .filter((t) => {
+        if (!t) return false;
         if (filterType !== 'all' && filterType !== 'task_due') return false;
         if (filterProject !== 'all' && t.project_id !== filterProject) return false;
         if (myEventsOnly && t.assignee_id !== currentProfile?.id) return false;
@@ -153,7 +162,7 @@ export default function CalendarPage() {
       })
       .map((t) => ({
         id: `task-${t.id}`,
-        title: `📌 Task Due: ${t.title}`,
+        title: `📌 Task Due: ${t.title || ''}`,
         start: t.due_date,
         allDay: true,
         backgroundColor: t.priority === 'urgent' ? '#7A0000' : '#141414',
@@ -161,16 +170,16 @@ export default function CalendarPage() {
         textColor: t.priority === 'urgent' ? '#FF3B3B' : '#E5E5E5',
       })),
 
-    // Auto-pulled Goal Ends
-    ...goals
+    ...(goals || [])
       .filter((g) => {
+        if (!g) return false;
         if (filterType !== 'all' && filterType !== 'goal_end') return false;
         if (filterProject !== 'all' && g.linked_project_id !== filterProject) return false;
         return true;
       })
       .map((g) => ({
         id: `goal-${g.id}`,
-        title: `🎯 Goal Target: ${g.title}`,
+        title: `🎯 Goal Target: ${g.title || ''}`,
         start: new Date().toISOString().split('T')[0],
         allDay: true,
         backgroundColor: '#0F291E',
@@ -246,23 +255,9 @@ export default function CalendarPage() {
         </label>
       </div>
 
-      {/* FullCalendar Component Container */}
+      {/* Dynamic FullCalendar Container */}
       <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl overflow-hidden text-xs text-white">
-        <FullCalendar
-          ref={calendarRef}
-          plugins={[dayGridPlugin as any, timeGridPlugin as any, interactionPlugin as any]}
-          initialView="dayGridMonth"
-          headerToolbar={{
-            left: 'prev,next today',
-            center: 'title',
-            right: 'dayGridMonth,timeGridWeek,timeGridDay',
-          }}
-          events={fullCalendarItems}
-          height="calc(100vh - 280px)"
-          editable={true}
-          selectable={true}
-          dayMaxEvents={3}
-        />
+        <FullCalendarWrapper events={fullCalendarItems} />
       </div>
 
       {/* Add Event Modal */}
