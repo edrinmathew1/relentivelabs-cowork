@@ -5,6 +5,7 @@ import {
   DndContext,
   DragOverlay,
   closestCorners,
+  rectIntersection,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -12,6 +13,7 @@ import {
   DragStartEvent,
   DragEndEvent,
   useDroppable,
+  CollisionDetection,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -148,23 +150,39 @@ function TrashDropZone() {
   return (
     <div
       ref={setNodeRef}
-      className={`p-4 border-2 border-dashed rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold ${
+      className={`p-5 border-2 border-dashed rounded-xl transition flex items-center justify-center gap-3 text-xs font-bold ${
         isOver
-          ? 'bg-[#7A0000]/60 border-[#FF3B3B] text-white scale-[1.02] shadow-xl'
-          : 'bg-[#141414]/50 border-[#262626] text-[#737373] hover:text-[#FF3B3B] hover:border-[#7A0000]'
+          ? 'bg-[#7A0000] border-[#E10600] text-white scale-[1.03] shadow-2xl shadow-[#E10600]/40 ring-4 ring-[#E10600]/30'
+          : 'bg-[#141414] border-[#262626] text-[#A3A3A3] hover:text-[#FF3B3B] hover:border-[#7A0000]'
       }`}
     >
-      <Trash2 className={`w-5 h-5 ${isOver ? 'text-white animate-bounce' : 'text-[#737373]'}`} />
-      <span>{isOver ? 'Release mouse to Delete Task' : 'Drag task card here to Delete'}</span>
+      <Trash2 className={`w-5 h-5 pointer-events-none ${isOver ? 'text-white animate-bounce' : 'text-[#E10600]'}`} />
+      <span className="pointer-events-none">{isOver ? 'RELEASE MOUSE TO DELETE TASK NOW' : 'Drag any task card here to Delete'}</span>
     </div>
   );
 }
+
+// Custom collision detection prioritizing Trash drop zone if intersected
+const customCollisionDetection: CollisionDetection = (args) => {
+  const trashIntersection = rectIntersection({
+    ...args,
+    droppableContainers: args.droppableContainers.filter(
+      (c) => c.id === 'trash-dropzone'
+    ),
+  });
+
+  if (trashIntersection.length > 0) {
+    return trashIntersection;
+  }
+
+  return closestCorners(args);
+};
 
 export function KanbanBoard({ tasks, onTaskMove, onTaskClick, onAddTask, onTaskDelete }: KanbanBoardProps) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 3 } }),
     useSensor(KeyboardSensor)
   );
 
@@ -206,7 +224,7 @@ export function KanbanBoard({ tasks, onTaskMove, onTaskClick, onAddTask, onTaskD
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={customCollisionDetection}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
@@ -229,9 +247,9 @@ export function KanbanBoard({ tasks, onTaskMove, onTaskClick, onAddTask, onTaskD
 
       <DragOverlay>
         {activeTask ? (
-          <div className="p-3 bg-[#141414] border border-[#E10600] rounded-lg shadow-2xl space-y-1 w-64">
+          <div className="p-3 bg-[#141414] border border-[#E10600] rounded-lg shadow-2xl space-y-1 w-64 opacity-90 scale-105">
             <h4 className="text-xs font-bold text-white">{activeTask.title}</h4>
-            <span className="text-[10px] text-[#A3A3A3] capitalize">{activeTask.status}</span>
+            <span className="text-[10px] text-[#FF3B3B] font-mono">Dragging to Move or Delete</span>
           </div>
         ) : null}
       </DragOverlay>
