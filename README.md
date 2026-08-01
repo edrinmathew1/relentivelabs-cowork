@@ -104,3 +104,6 @@ npm run dev
 # Production build check
 npm run build
 ```
+
+---
+*Built for RelentiveLabs CoWork — Production Deployment v1.0.1*
