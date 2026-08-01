@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Project, Task, Profile, TaskStatus } from '@/types';
 import { KanbanBoard } from '@/components/tasks/kanban-board';
 import { TaskModal } from '@/components/tasks/task-modal';
-import { FolderKanban, Calendar, Users, Plus, ArrowLeft } from 'lucide-react';
+import { Calendar, Users, Plus, ArrowLeft, FolderKanban } from 'lucide-react';
 import Link from 'next/link';
 import { formatDate } from '@/lib/utils';
 
@@ -20,35 +20,42 @@ export default function ProjectDetailPage() {
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const supabase = createClient();
 
   useEffect(() => {
-    fetchProjectAndTasks();
+    if (projectId) fetchProjectAndTasks();
   }, [projectId]);
 
   const fetchProjectAndTasks = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) setCurrentUserId(session.user.id);
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) setCurrentUserId(session.user.id);
 
-    const { data: projectData } = await supabase
-      .from('projects')
-      .select('*, owner:profiles(*)')
-      .eq('id', projectId)
-      .single();
+      const { data: projectData } = await supabase
+        .from('projects')
+        .select('*, owner:profiles(*)')
+        .eq('id', projectId)
+        .single();
 
-    if (projectData) setProject(projectData as any);
+      if (projectData) setProject(projectData as any);
 
-    const { data: tasksData } = await supabase
-      .from('tasks')
-      .select('*, assignee:profiles(*)')
-      .eq('project_id', projectId)
-      .order('position', { ascending: true });
+      const { data: tasksData } = await supabase
+        .from('tasks')
+        .select('*, assignee:profiles(*)')
+        .eq('project_id', projectId)
+        .order('position', { ascending: true });
 
-    if (tasksData) setTasks(tasksData as any);
+      if (tasksData) setTasks(tasksData as any);
 
-    const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
-    if (teamData) setTeamMembers(teamData as any);
+      const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
+      if (teamData) setTeamMembers(teamData as any);
+    } catch (err) {
+      console.error('Fetch project detail error:', err);
+    }
+    setLoading(false);
   };
 
   const handleTaskMove = async (taskId: string, newStatus: TaskStatus, newPosition: number) => {
@@ -56,30 +63,58 @@ export default function ProjectDetailPage() {
       prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, position: newPosition } : t))
     );
 
-    await supabase.from('tasks').update({ status: newStatus, position: newPosition }).eq('id', taskId);
-  };
-
-  const handleCreateTask = async (status: TaskStatus = 'todo') => {
-    const { data: newTask } = await supabase
-      .from('tasks')
-      .insert({
-        project_id: projectId,
-        title: 'New Project Task',
-        status,
-        created_by: currentUserId,
-        priority: 'medium',
-      })
-      .select('*, assignee:profiles(*)')
-      .single();
-
-    if (newTask) {
-      setTasks((prev) => [...prev, newTask as any]);
-      setSelectedTask(newTask as any);
-      setIsModalOpen(true);
+    try {
+      await supabase.from('tasks').update({ status: newStatus, position: newPosition }).eq('id', taskId);
+    } catch (err) {
+      console.error('Task move error:', err);
     }
   };
 
-  if (!project) return <div className="p-6 text-xs text-[#A3A3A3]">Loading project...</div>;
+  const handleCreateTask = async (status: TaskStatus = 'todo') => {
+    if (!projectId) return;
+    try {
+      const { data: newTask } = await supabase
+        .from('tasks')
+        .insert({
+          project_id: projectId,
+          title: 'New Project Task',
+          status,
+          created_by: currentUserId,
+          priority: 'medium',
+        })
+        .select('*, assignee:profiles(*)')
+        .single();
+
+      if (newTask) {
+        setTasks((prev) => [...prev, newTask as any]);
+        setSelectedTask(newTask as any);
+        setIsModalOpen(true);
+      }
+    } catch (err) {
+      console.error('Create task error:', err);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-12 text-center text-xs text-[#A3A3A3] animate-pulse">
+        Loading project board...
+      </div>
+    );
+  }
+
+  if (!project) {
+    return (
+      <div className="p-8 max-w-lg mx-auto bg-[#141414] border border-[#262626] rounded-xl text-center space-y-3">
+        <FolderKanban className="w-8 h-8 text-[#737373] mx-auto" />
+        <h2 className="text-sm font-bold text-white">Project Not Found</h2>
+        <p className="text-xs text-[#A3A3A3]">This project may have been deleted or moved.</p>
+        <Link href="/projects" className="inline-block px-4 py-2 bg-[#E10600] text-white text-xs font-bold rounded-lg">
+          Back to Projects
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -115,7 +150,7 @@ export default function ProjectDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           <Users className="w-3.5 h-3.5 text-[#E10600]" />
-          <span>Owner: {project.owner?.full_name || 'Admin'}</span>
+          <span>Owner: {project.owner?.full_name || 'Team'}</span>
         </div>
       </div>
 

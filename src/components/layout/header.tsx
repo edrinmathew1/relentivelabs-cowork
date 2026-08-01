@@ -13,48 +13,64 @@ interface HeaderProps {
 export function Header({ user }: HeaderProps) {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [open, setOpen] = useState(false);
-  const supabase = createClient();
 
   useEffect(() => {
     if (!user?.id) return;
+    const supabase = createClient();
 
     const fetchNotifications = async () => {
-      const { data } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
+      try {
+        const { data } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
 
-      if (data) {
-        setNotifications(data as NotificationItem[]);
+        if (data) {
+          setNotifications(data as NotificationItem[]);
+        }
+      } catch (err) {
+        console.error('Fetch notifications error:', err);
       }
     };
 
     fetchNotifications();
 
-    const channel = supabase
-      .channel(`notifications:${user.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
-        (payload: any) => {
-          setNotifications((prev) => [payload.new as NotificationItem, ...prev.slice(0, 9)]);
-        }
-      )
-      .subscribe();
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel(`notifications:${user.id}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+          (payload: any) => {
+            if (payload?.new) {
+              setNotifications((prev) => [payload.new as NotificationItem, ...prev.slice(0, 9)]);
+            }
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.error('Notification realtime channel error:', err);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
-  }, [user?.id, supabase]);
+  }, [user?.id]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const markAllAsRead = async () => {
     if (!user?.id) return;
-    await supabase.from('notifications').update({ read: true }).eq('user_id', user.id);
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    try {
+      const supabase = createClient();
+      await supabase.from('notifications').update({ read: true }).eq('user_id', user.id);
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    } catch (err) {
+      console.error('Mark read error:', err);
+    }
   };
 
   return (
