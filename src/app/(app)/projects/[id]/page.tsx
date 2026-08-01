@@ -34,19 +34,40 @@ export default function ProjectDetailPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) setCurrentUserId(session.user.id);
 
-      const { data: projectData } = await supabase
+      // Resilient Project query with fallback
+      let { data: projectData, error: projErr } = await supabase
         .from('projects')
-        .select('*, owner:profiles(*)')
+        .select('*, owner:profiles!owner_id(*)')
         .eq('id', projectId)
-        .single();
+        .maybeSingle();
+
+      if (projErr || !projectData) {
+        console.warn('Project detail join fallback:', projErr);
+        const { data: fallbackProject } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', projectId)
+          .maybeSingle();
+        projectData = fallbackProject;
+      }
 
       if (projectData) setProject(projectData as any);
 
-      const { data: tasksData } = await supabase
+      // Resilient Tasks query with fallback
+      let { data: tasksData, error: taskErr } = await supabase
         .from('tasks')
-        .select('*, assignee:profiles(*)')
+        .select('*, assignee:profiles!assignee_id(*)')
         .eq('project_id', projectId)
         .order('position', { ascending: true });
+
+      if (taskErr || !tasksData) {
+        const { data: fallbackTasks } = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('project_id', projectId)
+          .order('position', { ascending: true });
+        tasksData = fallbackTasks;
+      }
 
       if (tasksData) setTasks(tasksData as any);
 
@@ -82,7 +103,7 @@ export default function ProjectDetailPage() {
           created_by: currentUserId,
           priority: 'medium',
         })
-        .select('*, assignee:profiles(*)')
+        .select('*')
         .single();
 
       if (newTask) {
