@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { CalendarEvent, EventType, EventScope, RecurrenceRule, Project, Profile, Task, Goal } from '@/types';
 import { CustomCalendar } from '@/components/calendar/custom-calendar';
-import { Calendar as CalendarIcon, Plus, Filter } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, Filter, Clock, Zap } from 'lucide-react';
 
 export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -82,6 +82,41 @@ export default function CalendarPage() {
     }
   };
 
+  // Helper date-time format for input
+  const toLocalISO = (d: Date) => {
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
+  };
+
+  // Quick Preset Handlers
+  const applyPreset = (preset: 'today' | 'tomorrow' | 'in1h' | 'nextMonday') => {
+    const now = new Date();
+    let start = new Date();
+    let end = new Date();
+
+    if (preset === 'today') {
+      start.setHours(9, 0, 0, 0);
+      end.setHours(10, 0, 0, 0);
+    } else if (preset === 'tomorrow') {
+      start.setDate(now.getDate() + 1);
+      start.setHours(10, 0, 0, 0);
+      end.setDate(now.getDate() + 1);
+      end.setHours(11, 0, 0, 0);
+    } else if (preset === 'in1h') {
+      start.setHours(now.getHours() + 1, 0, 0, 0);
+      end.setHours(now.getHours() + 2, 0, 0, 0);
+    } else if (preset === 'nextMonday') {
+      const daysUntilMonday = (1 + 7 - now.getDay()) % 7 || 7;
+      start.setDate(now.getDate() + daysUntilMonday);
+      start.setHours(9, 0, 0, 0);
+      end.setDate(now.getDate() + daysUntilMonday);
+      end.setHours(10, 0, 0, 0);
+    }
+
+    setStartAt(toLocalISO(start));
+    setEndAt(toLocalISO(end));
+  };
+
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentProfile) return;
@@ -93,8 +128,8 @@ export default function CalendarPage() {
         title,
         description,
         event_type: eventType,
-        start_at: startAt || new Date().toISOString(),
-        end_at: endAt || null,
+        start_at: startAt ? new Date(startAt).toISOString() : new Date().toISOString(),
+        end_at: endAt ? new Date(endAt).toISOString() : null,
         all_day: allDay,
         color,
         scope: currentProfile.role === 'admin' ? scope : 'personal',
@@ -188,7 +223,10 @@ export default function CalendarPage() {
         </div>
 
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            applyPreset('today');
+            setIsModalOpen(true);
+          }}
           className="bg-[#E10600] hover:bg-[#FF3B3B] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#E10600]/20 transition"
         >
           <Plus className="w-4 h-4" /> Add Event / Milestone
@@ -263,6 +301,43 @@ export default function CalendarPage() {
                   placeholder="e.g. Q3 SaaS Sprint Review or Client Sync"
                   className="w-full bg-[#0A0A0A] border border-[#262626] focus:border-[#E10600] rounded-lg p-2.5 text-xs text-white outline-none"
                 />
+              </div>
+
+              {/* Quick Date/Time Presets Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1.5 flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-[#E10600]" /> Quick Date & Time Presets
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => applyPreset('today')}
+                    className="px-2.5 py-1 bg-[#0A0A0A] hover:bg-[#262626] border border-[#262626] hover:border-[#E10600] rounded-md text-[11px] text-[#E5E5E5] transition"
+                  >
+                    Today 9 AM
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPreset('tomorrow')}
+                    className="px-2.5 py-1 bg-[#0A0A0A] hover:bg-[#262626] border border-[#262626] hover:border-[#E10600] rounded-md text-[11px] text-[#E5E5E5] transition"
+                  >
+                    Tomorrow 10 AM
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPreset('in1h')}
+                    className="px-2.5 py-1 bg-[#0A0A0A] hover:bg-[#262626] border border-[#262626] hover:border-[#E10600] rounded-md text-[11px] text-[#E5E5E5] transition"
+                  >
+                    In 1 Hour
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPreset('nextMonday')}
+                    className="px-2.5 py-1 bg-[#0A0A0A] hover:bg-[#262626] border border-[#262626] hover:border-[#E10600] rounded-md text-[11px] text-[#E5E5E5] transition"
+                  >
+                    Next Monday
+                  </button>
+                </div>
               </div>
 
               <div>

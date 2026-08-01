@@ -28,7 +28,6 @@ export default function TasksPage() {
   useEffect(() => {
     fetchInitialData();
 
-    // Supabase Realtime live task board updates
     const channel = supabase
       .channel('tasks-realtime-channel')
       .on(
@@ -50,18 +49,15 @@ export default function TasksPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) setCurrentUserId(session.user.id);
 
-      // Fetch projects first
       const { data: projectsData } = await supabase.from('projects').select('*');
       if (projectsData) setProjects(projectsData as any);
 
-      // Resilient tasks query
       let { data: tasksData, error: taskErr } = await supabase
         .from('tasks')
         .select('*, assignee:profiles!assignee_id(*), project:projects!project_id(*)')
         .order('position', { ascending: true });
 
       if (taskErr || !tasksData) {
-        console.warn('Tasks join fallback, fetching raw tasks:', taskErr);
         const { data: fallbackTasks } = await supabase
           .from('tasks')
           .select('*')
@@ -102,13 +98,21 @@ export default function TasksPage() {
     }
   };
 
+  const handleTaskDelete = async (taskId: string) => {
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    try {
+      await supabase.from('tasks').delete().eq('id', taskId);
+    } catch (err) {
+      console.error('Delete task error:', err);
+    }
+  };
+
   const handleCreateNewTask = async (defaultStatus: TaskStatus = 'todo') => {
     setErrorMsg(null);
 
     try {
       let targetProjectId = projects.length > 0 ? projects[0].id : null;
 
-      // Auto-create a default project if none exists yet
       if (!targetProjectId) {
         const { data: autoProject, error: projErr } = await supabase
           .from('projects')
@@ -169,7 +173,7 @@ export default function TasksPage() {
         <div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight">Tasks Board</h1>
           <p className="text-xs text-[#A3A3A3] mt-0.5">
-            Realtime Kanban drag-and-drop & compact task view.
+            Realtime Kanban drag-and-drop, Trash delete zone & compact task view.
           </p>
         </div>
 
@@ -257,6 +261,7 @@ export default function TasksPage() {
             setIsModalOpen(true);
           }}
           onAddTask={(status) => handleCreateNewTask(status)}
+          onTaskDelete={handleTaskDelete}
         />
       )}
 
@@ -290,14 +295,8 @@ export default function TasksPage() {
                       {t.status.replace('_', ' ')}
                     </span>
                   </td>
-                  <td className="p-3 capitalize font-semibold">
-                    {t.priority === 'urgent' ? (
-                      <span className="text-[#FF3B3B] flex items-center gap-1">
-                        <Flame className="w-3 h-3" /> Urgent
-                      </span>
-                    ) : (
-                      t.priority
-                    )}
+                  <td className="p-3 capitalize font-semibold font-mono text-[#E10600]">
+                    {t.priority}
                   </td>
                   <td className="p-3 text-[#A3A3A3]">{t.assignee?.full_name || 'Unassigned'}</td>
                   <td className="p-3 text-[#737373]">{formatDate(t.due_date)}</td>
