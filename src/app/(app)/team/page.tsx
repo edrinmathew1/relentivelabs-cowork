@@ -115,10 +115,9 @@ export default function TeamPage() {
           const memberStreak = checklists.filter((c) => c.user_id === member.id && c.is_complete).length;
 
           const badges = [];
-          if (member.role === 'admin') badges.push({ label: '👑 Agency Founder / Admin', color: '#E10600' });
           if (memberStreak >= 3) badges.push({ label: `🔥 Streak Legend (${memberStreak}d)`, color: '#FF3B3B' });
           if (memberDoneTasks >= 1) badges.push({ label: `🛠️ Task Crusher (${memberDoneTasks} Done)`, color: '#3FBF6C' });
-          if (member.status === 'active') badges.push({ label: '🌟 Active Onboarded', color: '#3B82F6' });
+          if (member.status === 'active') badges.push({ label: '🌟 Active Member', color: '#3B82F6' });
 
           return (
             <div
