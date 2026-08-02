@@ -24,6 +24,8 @@ export default async function AppLayout({
     email: session.user.email || '',
     role: 'member',
     status: 'active',
+    joined_at: new Date().toISOString(),
+    created_at: new Date().toISOString(),
   };
 
   try {

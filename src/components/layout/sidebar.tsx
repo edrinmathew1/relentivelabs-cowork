@@ -14,8 +14,7 @@ import {
   Users,
   Settings,
   LogOut,
-  Layers,
-  User,
+  FileText,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -29,6 +28,7 @@ const NAV_ITEMS = [
   { label: 'Calendar OS', href: '/calendar', icon: Calendar },
   { label: 'Daily Checklist', href: '/checklist', icon: CheckSquare },
   { label: 'Goals & OKRs', href: '/goals', icon: Target },
+  { label: 'Docs & SOPs', href: '/docs', icon: FileText },
   { label: 'Team Workspace', href: '/team', icon: Users },
   { label: 'Settings', href: '/settings', icon: Settings },
 ];

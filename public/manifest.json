@@ -1,0 +1,16 @@
+{
+  "short_name": "Relentive CoWork",
+  "name": "RelentiveLabs CoWork - SaaS Agency OS Platform",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0A0A0A",
+  "theme_color": "#E10600",
+  "display": "standalone",
+  "orientation": "portrait"
+}

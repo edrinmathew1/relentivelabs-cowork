@@ -235,6 +235,20 @@ CREATE TABLE IF NOT EXISTS public.events (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- --------------------------------------------------------
+-- 14. DOCS & KNOWLEDGE BASE
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.docs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  category TEXT CHECK (category IN ('sop', 'brand', 'api_spec', 'meeting_notes', 'general')) DEFAULT 'general',
+  project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
+  author_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ========================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- ========================================================
@@ -252,6 +266,7 @@ ALTER TABLE public.work_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invites ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.docs ENABLE ROW LEVEL SECURITY;
 
 -- Profiles Policies
 DROP POLICY IF EXISTS "Profiles viewable by authenticated users" ON public.profiles;
@@ -354,6 +369,11 @@ DROP POLICY IF EXISTS "Events insert/update/delete policy" ON public.events;
 CREATE POLICY "Events insert/update/delete policy" ON public.events
   FOR ALL USING (auth.role() = 'authenticated');
 
+-- Docs Policies
+DROP POLICY IF EXISTS "Docs access" ON public.docs;
+CREATE POLICY "Docs access" ON public.docs
+  FOR ALL USING (auth.role() = 'authenticated');
+
 -- Safely add tables to Realtime publication without duplicate error
 DO $$
 BEGIN
@@ -383,20 +403,3 @@ BEGIN
 EXCEPTION
   WHEN OTHERS THEN NULL;
 END $$;
-
--- ========================================================
--- SEED DATA
--- ========================================================
-INSERT INTO public.checklist_templates (id, name, role, items) VALUES
-(
-  gen_random_uuid(),
-  'Engineering Daily Standard',
-  'all',
-  '[
-    {"id": "1", "label": "Review assigned GitHub pull requests & issue queue"},
-    {"id": "2", "label": "Sync task status & estimated hours on project board"},
-    {"id": "3", "label": "Commit clean, tested code with clear commit message"},
-    {"id": "4", "label": "Log daily work summary & hours in Relentive OS"},
-    {"id": "5", "label": "Clear urgent blockings & respond to @mentions"}
-  ]'::jsonb
-) ON CONFLICT DO NOTHING;
