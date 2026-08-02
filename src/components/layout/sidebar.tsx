@@ -8,108 +8,111 @@ import {
   LayoutDashboard,
   FolderKanban,
   CheckSquare,
+  CheckSquare2,
+  Calendar,
   Target,
   Users,
   Settings,
   LogOut,
-  ListTodo,
-  Calendar as CalendarIcon,
+  Layers,
+  User,
 } from 'lucide-react';
 
 interface SidebarProps {
   user: Profile | null;
 }
 
+const NAV_ITEMS = [
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'Projects', href: '/projects', icon: FolderKanban },
+  { label: 'Tasks Board', href: '/tasks', icon: CheckSquare2 },
+  { label: 'Calendar OS', href: '/calendar', icon: Calendar },
+  { label: 'Daily Checklist', href: '/checklist', icon: CheckSquare },
+  { label: 'Goals & OKRs', href: '/goals', icon: Target },
+  { label: 'Team Workspace', href: '/team', icon: Users },
+  { label: 'Settings', href: '/settings', icon: Settings },
+];
+
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
 
-  const navItems = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Projects', href: '/projects', icon: FolderKanban },
-    { name: 'Tasks Board', href: '/tasks', icon: ListTodo },
-    { name: 'Calendar OS', href: '/calendar', icon: CalendarIcon },
-    { name: 'Daily Checklist', href: '/checklist', icon: CheckSquare },
-    { name: 'Goals & OKRs', href: '/goals', icon: Target },
-    { name: 'Team Workspace', href: '/team', icon: Users },
-    { name: 'Settings', href: '/settings', icon: Settings },
-  ];
-
-  const handleLogout = async () => {
+  const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push('/login');
-    router.refresh();
   };
 
   return (
-    <aside className="w-64 bg-[#050505] border-r border-[#1F1F1F] flex flex-col h-screen fixed left-0 top-0 z-30 select-none">
-      {/* Brand Header */}
-      <div className="h-16 px-5 flex items-center gap-3 border-b border-[#1F1F1F] bg-[#0A0A0A]/50">
-        <div className="w-8 h-8 rounded-lg bg-[#E10600] flex items-center justify-center shadow-lg shadow-[#E10600]/30 text-white font-black tracking-tighter">
-          R
-        </div>
-        <div>
-          <div className="text-sm font-extrabold text-white tracking-tight leading-none flex items-center gap-1.5">
-            RELENTIVE<span className="text-[#E10600]">LABS</span>
+    <aside className="w-64 bg-[#0A0A0A] border-r border-[#1F1F1F] flex flex-col justify-between h-screen fixed top-0 left-0 z-30 select-none">
+      {/* Top Header */}
+      <div>
+        <div className="h-16 px-6 border-b border-[#1F1F1F] flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-[#E10600] flex items-center justify-center text-white font-extrabold text-lg shadow-md shadow-[#E10600]/30">
+            R
           </div>
-          <span className="text-[10px] text-[#A3A3A3] font-medium uppercase tracking-widest">
-            COWORK OS v1.0
-          </span>
+          <div>
+            <span className="font-extrabold text-sm tracking-wider text-white flex items-center gap-1">
+              RELENTIVE <span className="text-[#E10600]">LABS</span>
+            </span>
+            <p className="text-[10px] text-[#A3A3A3] font-mono uppercase tracking-widest">
+              CoWork OS v1.0
+            </p>
+          </div>
         </div>
+
+        {/* Navigation Menu */}
+        <nav className="p-4 space-y-1">
+          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#737373]">
+            Agency Workspace
+          </div>
+
+          {NAV_ITEMS.map((item) => {
+            const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+            const Icon = item.icon;
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold transition ${
+                  isActive
+                    ? 'bg-[#141414] text-white border-l-2 border-[#E10600] shadow-sm'
+                    : 'text-[#A3A3A3] hover:text-white hover:bg-[#141414]/50'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isActive ? 'text-[#E10600]' : 'text-[#737373]'}`} />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
       </div>
 
-      {/* Navigation Items */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        <div className="px-3 pb-2 text-[10px] font-semibold text-[#525252] uppercase tracking-wider">
-          Agency Workspace
-        </div>
-        {navItems.map((item) => {
-          const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 rounded-md text-xs font-medium transition-all ${
-                isActive
-                  ? 'bg-[#E10600]/15 text-white border-l-2 border-[#E10600]'
-                  : 'text-[#A3A3A3] hover:text-white hover:bg-[#141414]'
-              }`}
-            >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-[#E10600]' : 'text-[#737373]'}`} />
-              <span>{item.name}</span>
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* Footer Profile & Logout */}
-      <div className="p-3 border-t border-[#1F1F1F] bg-[#0A0A0A]/60">
-        <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#141414] border border-[#262626]">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-full bg-[#262626] border border-[#E10600]/50 text-white text-xs font-bold flex items-center justify-center shrink-0">
-              {user?.full_name ? user.full_name.substring(0, 2).toUpperCase() : 'U'}
+      {/* User Footer Profile */}
+      <div className="p-4 border-t border-[#1F1F1F] bg-[#0A0A0A]">
+        <div className="flex items-center justify-between p-2 rounded-lg bg-[#141414] border border-[#262626]">
+          <div className="flex items-center gap-2.5 overflow-hidden">
+            <div className="w-7 h-7 rounded-full bg-[#1A1A1A] border border-[#E10600] flex items-center justify-center text-white text-xs font-bold shrink-0 overflow-hidden">
+              {user?.avatar_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={user.avatar_url} alt="User Avatar" className="w-full h-full object-cover" />
+              ) : (
+                user?.full_name ? user.full_name.substring(0, 2).toUpperCase() : 'US'
+              )}
             </div>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-white truncate">
-                {user?.full_name || 'Agency Member'}
-              </p>
-              <div className="flex items-center gap-1">
-                <span className={`inline-block w-1.5 h-1.5 rounded-full ${user?.role === 'admin' ? 'bg-[#E10600]' : 'bg-[#3FBF6C]'}`} />
-                <span className="text-[10px] text-[#A3A3A3] capitalize">
-                  {user?.role || 'member'}
-                </span>
-              </div>
+            <div className="truncate">
+              <p className="text-xs font-bold text-white truncate">{user?.full_name || 'Team Member'}</p>
+              <p className="text-[10px] text-[#A3A3A3] truncate capitalize">{user?.role || 'Member'}</p>
             </div>
           </div>
 
           <button
-            onClick={handleLogout}
+            onClick={handleSignOut}
             title="Sign Out"
-            className="p-1.5 text-[#737373] hover:text-[#E10600] hover:bg-[#1F1F1F] rounded-md transition"
+            className="text-[#737373] hover:text-[#FF3B3B] p-1 rounded hover:bg-[#262626] transition shrink-0"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>

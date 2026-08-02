@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Project, Profile, ProjectStatus } from '@/types';
 import Link from 'next/link';
-import { Plus, FolderKanban, Calendar, Users, ArrowRight, AlertCircle } from 'lucide-react';
+import { Plus, FolderKanban, Calendar, Users, ArrowRight, AlertCircle, Trash2 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 export default function ProjectsPage() {
@@ -34,14 +34,12 @@ export default function ProjectsPage() {
         setCurrentUserId(session.user.id);
       }
 
-      // Query with resilient fallback
       let { data: projectsData, error: projErr } = await supabase
         .from('projects')
         .select('*, owner:profiles!owner_id(*)')
         .order('created_at', { ascending: false });
 
       if (projErr || !projectsData) {
-        console.warn('Projects join query fallback, fetching basic rows:', projErr);
         const { data: fallbackData } = await supabase
           .from('projects')
           .select('*')
@@ -77,7 +75,6 @@ export default function ProjectsPage() {
         .single();
 
       if (error) {
-        console.error('Project insert error:', error);
         throw new Error(error.message);
       }
 
@@ -100,6 +97,21 @@ export default function ProjectsPage() {
       setErrorMsg(err.message || 'Failed to create project');
     }
     setLoading(false);
+  };
+
+  const handleDeleteProject = async (e: React.MouseEvent, projectId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!confirm('Are you sure you want to delete this project and all its tasks?')) return;
+
+    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+
+    try {
+      await supabase.from('projects').delete().eq('id', projectId);
+    } catch (err) {
+      console.error('Delete project error:', err);
+    }
   };
 
   return (
@@ -130,14 +142,23 @@ export default function ProjectsPage() {
           <Link
             key={project.id}
             href={`/projects/${project.id}`}
-            className="bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] hover:border-[#E10600]/50 rounded-xl p-5 transition flex flex-col justify-between group shadow-lg"
+            className="bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] hover:border-[#E10600]/50 rounded-xl p-5 transition flex flex-col justify-between group shadow-lg relative"
           >
             <div>
               <div className="flex items-center justify-between gap-2 mb-3">
                 <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#262626] text-[#E5E5E5] group-hover:border-[#E10600]/50 transition">
                   {project.status.replace('_', ' ')}
                 </span>
-                <ArrowRight className="w-4 h-4 text-[#737373] group-hover:text-[#E10600] transition" />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => handleDeleteProject(e, project.id)}
+                    title="Delete Project"
+                    className="p-1 text-[#737373] hover:text-[#FF3B3B] hover:bg-[#262626] rounded transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                  <ArrowRight className="w-4 h-4 text-[#737373] group-hover:text-[#E10600] transition" />
+                </div>
               </div>
 
               <h2 className="text-lg font-bold text-white group-hover:text-[#FF3B3B] transition mb-1">

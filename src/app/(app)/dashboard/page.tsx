@@ -33,7 +33,6 @@ export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [checklists, setChecklists] = useState<DailyChecklist[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
 
   const supabase = createClient();
 
@@ -42,30 +41,32 @@ export default function DashboardPage() {
   }, []);
 
   const fetchDashboardMetrics = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
 
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', session.user.id)
-      .single();
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
 
-    if (profileData) setProfile(profileData as any);
+      if (profileData) setProfile(profileData as any);
 
-    const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
-    if (teamData) setTeamMembers(teamData as any);
+      const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
+      if (teamData) setTeamMembers(teamData as any);
 
-    const { data: tasksData } = await supabase.from('tasks').select('*, assignee:profiles(*), project:projects(*)');
-    if (tasksData) setTasks(tasksData as any);
+      const { data: tasksData } = await supabase.from('tasks').select('*');
+      if (tasksData) setTasks(tasksData as any);
 
-    const { data: checklistsData } = await supabase.from('daily_checklists').select('*');
-    if (checklistsData) setChecklists(checklistsData as any);
+      const { data: checklistsData } = await supabase.from('daily_checklists').select('*');
+      if (checklistsData) setChecklists(checklistsData as any);
 
-    const { data: projectsData } = await supabase.from('projects').select('*');
-    if (projectsData) setProjects(projectsData as any);
-
-    setLoading(false);
+      const { data: projectsData } = await supabase.from('projects').select('*');
+      if (projectsData) setProjects(projectsData as any);
+    } catch (err) {
+      console.error('Fetch dashboard error:', err);
+    }
   };
 
   const isAdmin = profile?.role === 'admin';
@@ -73,11 +74,9 @@ export default function DashboardPage() {
   // 1. Tasks per member bar chart data
   const memberTaskData = teamMembers.map((member) => {
     const completed = tasks.filter((t) => t.assignee_id === member.id && t.status === 'done').length;
-    const total = tasks.filter((t) => t.assignee_id === member.id).length;
     return {
-      name: member.full_name.split(' ')[0],
+      name: member.full_name?.split(' ')[0] || member.email.split('@')[0],
       completed,
-      total,
     };
   });
 
@@ -118,7 +117,7 @@ export default function DashboardPage() {
     const streak = memberLists.length;
     return {
       id: member.id,
-      name: member.full_name,
+      name: member.full_name || member.email,
       streak,
     };
   }).sort((a, b) => b.streak - a.streak);
@@ -126,7 +125,6 @@ export default function DashboardPage() {
   // 5. Dynamic Personal Member Stats
   const personalTasks = tasks.filter((t) => t.assignee_id === profile?.id);
   const personalDoneTasks = personalTasks.filter((t) => t.status === 'done').length;
-  const personalTotalTasks = personalTasks.length;
   const personalOnTimeTasks = personalTasks.filter((t) => {
     if (t.status !== 'done') return false;
     if (!t.due_date || !t.updated_at) return true;
@@ -201,7 +199,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Analytics Charts */}
+      {/* Analytics Charts with Dark Styling */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Tasks Completed Per Member (Bar Chart) */}
         <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
@@ -209,12 +207,15 @@ export default function DashboardPage() {
             <BarChart2 className="w-4 h-4 text-[#E10600]" />
             Completed Tasks Per Team Member
           </h3>
-          <div className="h-64">
+          <div className="h-64 bg-[#0A0A0A] p-3 rounded-xl border border-[#262626]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={memberTaskData}>
-                <XAxis dataKey="name" stroke="#737373" fontSize={11} />
-                <YAxis stroke="#737373" fontSize={11} />
-                <Tooltip contentStyle={{ backgroundColor: '#0A0A0A', borderColor: '#262626', borderRadius: '8px' }} />
+                <XAxis dataKey="name" stroke="#A3A3A3" fontSize={11} />
+                <YAxis stroke="#A3A3A3" fontSize={11} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#141414', borderColor: '#262626', borderRadius: '8px', color: '#FFFFFF' }}
+                  itemStyle={{ color: '#FF3B3B' }}
+                />
                 <Bar dataKey="completed" fill="#E10600" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -227,12 +228,12 @@ export default function DashboardPage() {
             <TrendingUp className="w-4 h-4 text-[#E10600]" />
             Team Velocity Trend (Past 8 Weeks)
           </h3>
-          <div className="h-64">
+          <div className="h-64 bg-[#0A0A0A] p-3 rounded-xl border border-[#262626]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={velocityData}>
-                <XAxis dataKey="week" stroke="#737373" fontSize={11} />
-                <YAxis stroke="#737373" fontSize={11} />
-                <Tooltip contentStyle={{ backgroundColor: '#0A0A0A', borderColor: '#262626', borderRadius: '8px' }} />
+                <XAxis dataKey="week" stroke="#A3A3A3" fontSize={11} />
+                <YAxis stroke="#A3A3A3" fontSize={11} allowDecimals={false} />
+                <Tooltip contentStyle={{ backgroundColor: '#141414', borderColor: '#262626', borderRadius: '8px', color: '#FFFFFF' }} />
                 <Line type="monotone" dataKey="completed" stroke="#FF3B3B" strokeWidth={3} dot={{ fill: '#E10600' }} />
               </LineChart>
             </ResponsiveContainer>
@@ -242,15 +243,15 @@ export default function DashboardPage() {
         {/* Workload Distribution Pie Chart */}
         <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
           <h3 className="text-sm font-bold text-white">Workload Distribution Across Projects</h3>
-          <div className="h-56">
+          <div className="h-56 bg-[#0A0A0A] p-3 rounded-xl border border-[#262626]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={projectDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                <Pie data={projectDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label>
                   {projectDistribution.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={{ backgroundColor: '#0A0A0A', borderColor: '#262626', borderRadius: '8px' }} />
+                <Tooltip contentStyle={{ backgroundColor: '#141414', borderColor: '#262626', borderRadius: '8px', color: '#FFFFFF' }} />
               </PieChart>
             </ResponsiveContainer>
           </div>
