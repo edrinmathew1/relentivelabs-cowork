@@ -3,7 +3,7 @@ import { Resend } from 'resend';
 const resendApiKey = process.env.RESEND_API_KEY || '';
 export const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
-export const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'RelentiveLabs CoWork <notifications@relentivelabs.com>';
+export const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'RelentiveLabs CoWork <onboarding@resend.dev>';
 
 interface EmailTemplateOptions {
   to: string;
@@ -71,8 +71,8 @@ export async function sendBrandedEmail({
       html,
     });
     return { success: true, data };
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Resend Error]', error);
-    return { success: false, error };
+    return { success: false, error: error?.message || String(error) };
   }
 }

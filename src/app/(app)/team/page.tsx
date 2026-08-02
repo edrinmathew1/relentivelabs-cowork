@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Profile, Invite, Task, DailyChecklist } from '@/types';
-import { Users, Mail, Plus, Shield, Award, Flame, CheckCircle2, UserCheck, AlertCircle } from 'lucide-react';
+import { Users, Mail, Plus, Shield, Award, Flame, CheckCircle2, Copy, AlertCircle } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 export default function TeamPage() {
@@ -17,7 +17,10 @@ export default function TeamPage() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member');
   const [sending, setSending] = useState(false);
-  const [inviteSuccessMsg, setInviteSuccessMsg] = useState<string | null>(null);
+
+  // Instant Copyable Invite Link State
+  const [generatedInviteUrl, setGeneratedInviteUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const supabase = createClient();
@@ -54,7 +57,7 @@ export default function TeamPage() {
     e.preventDefault();
     setSending(true);
     setErrorMsg(null);
-    setInviteSuccessMsg(null);
+    setGeneratedInviteUrl(null);
 
     try {
       const res = await fetch('/api/invite', {
@@ -66,7 +69,9 @@ export default function TeamPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to send invitation');
 
-      setInviteSuccessMsg(`Invite sent to ${inviteEmail}! Check Resend email.`);
+      if (data.inviteUrl) {
+        setGeneratedInviteUrl(data.inviteUrl);
+      }
       setInviteEmail('');
       setIsInviteModalOpen(false);
       fetchTeamAndInvites();
@@ -74,6 +79,12 @@ export default function TeamPage() {
       setErrorMsg(err.message || 'Invitation error');
     }
     setSending(false);
+  };
+
+  const copyToClipboard = (url: string) => {
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
   };
 
   return (
@@ -100,17 +111,33 @@ export default function TeamPage() {
         )}
       </div>
 
-      {inviteSuccessMsg && (
-        <div className="p-3 bg-emerald-950/40 border border-emerald-500 text-emerald-300 rounded-xl text-xs flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{inviteSuccessMsg}</span>
+      {/* Generated Invite Link Banner */}
+      {generatedInviteUrl && (
+        <div className="p-4 bg-[#141414] border border-[#E10600] rounded-xl shadow-2xl space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold text-white flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              Invitation Created Successfully!
+            </h3>
+            <button
+              onClick={() => copyToClipboard(generatedInviteUrl)}
+              className="px-3 py-1 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg transition flex items-center gap-1"
+            >
+              <Copy className="w-3.5 h-3.5" /> {copied ? 'Copied Link!' : 'Copy Direct Onboarding Link'}
+            </button>
+          </div>
+          <p className="text-xs text-[#A3A3A3]">
+            Resend email dispatched. You can also copy and send this direct link to your teammate via WhatsApp/Discord:
+          </p>
+          <div className="p-2 bg-[#0A0A0A] border border-[#262626] rounded-lg text-xs text-[#E10600] font-mono break-all">
+            {generatedInviteUrl}
+          </div>
         </div>
       )}
 
       {/* Team Member Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {members.map((member) => {
-          // Calculate Gamified Achievement Badges
           const memberDoneTasks = tasks.filter((t) => t.assignee_id === member.id && t.status === 'done').length;
           const memberStreak = checklists.filter((c) => c.user_id === member.id && c.is_complete).length;
 

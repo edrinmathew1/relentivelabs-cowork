@@ -50,11 +50,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: inviteError.message }, { status: 400 });
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://relentivelabs-cowork.vercel.app';
     const inviteUrl = `${baseUrl}/accept-invite/${token}`;
 
     // Send email via Resend
-    await sendBrandedEmail({
+    const resendResult = await sendBrandedEmail({
       to: email,
       subject: "You've been invited to RelentiveLabs CoWork",
       headline: "Welcome to RelentiveLabs CoWork",
@@ -64,7 +64,12 @@ export async function POST(req: Request) {
       buttonUrl: inviteUrl,
     });
 
-    return NextResponse.json({ success: true, message: `Invite sent to ${email}` });
+    return NextResponse.json({
+      success: true,
+      inviteUrl,
+      message: `Invite generated for ${email}`,
+      resendResult,
+    });
   } catch (err: any) {
     console.error('Invite API error:', err);
     return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
