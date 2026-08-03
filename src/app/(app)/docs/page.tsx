@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Doc, DocCategory, Project, Profile } from '@/types';
 import { TiptapEditor } from '@/components/ui/tiptap-editor';
-import { FileText, Plus, Filter, Zap, FolderKanban, CheckCircle2, Upload, Paperclip, Download, AlertCircle } from 'lucide-react';
-import Link from 'next/link';
+import { FileText, Plus, Zap, FolderKanban, CheckCircle2, Upload, Paperclip, Download, Trash2, AlertCircle, Eye } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 export default function DocsPage() {
@@ -25,8 +24,6 @@ export default function DocsPage() {
   const [content, setContent] = useState('');
   const [category, setCategory] = useState<DocCategory>('general');
   const [projectId, setProjectId] = useState('');
-  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
-  const [attachmentName, setAttachmentName] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -48,10 +45,13 @@ export default function DocsPage() {
       let { data: docsData, error: docsErr } = await supabase
         .from('docs')
         .select('*, project:projects(*), author:profiles(*)')
-        .order('updated_at', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (docsErr || !docsData) {
-        const { data: fallbackDocs } = await supabase.from('docs').select('*').order('updated_at', { ascending: false });
+        const { data: fallbackDocs } = await supabase
+          .from('docs')
+          .select('*')
+          .order('created_at', { ascending: false });
         docsData = fallbackDocs;
       }
 
@@ -64,46 +64,61 @@ export default function DocsPage() {
     }
   };
 
-  // Direct Document File Import (.pdf, .docx, .md, .txt)
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Instant Direct File Upload & Auto-Save Handler (.pdf, .docx, .md, .txt)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setUploadingFile(true);
     const fileName = file.name;
     const ext = fileName.split('.').pop()?.toLowerCase();
+    const docTitle = title.trim() || fileName.replace(/\.[^/.]+$/, '');
 
-    // Auto-fill title if empty
-    if (!title) {
-      setTitle(fileName.replace(/\.[^/.]+$/, ''));
+    try {
+      let finalContent = '';
+
+      if (ext === 'txt' || ext === 'md') {
+        const text = await file.text();
+        finalContent = `<div style="font-family: monospace; white-space: pre-wrap; background: #0A0A0A; padding: 12px; border-radius: 8px; border: 1px solid #262626;">${text}</div>`;
+      } else {
+        // For .pdf, .docx, read as Data URL
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (evt) => resolve(evt.target?.result as string);
+          reader.readAsDataURL(file);
+        });
+
+        finalContent = `
+          <div style="padding: 16px; background: #0A0A0A; border: 1px solid #262626; border-radius: 12px; margin-bottom: 12px;">
+            <div style="font-weight: bold; color: #FFFFFF; font-size: 14px; margin-bottom: 8px;">📄 Attached Document: ${fileName}</div>
+            <a href="${dataUrl}" download="${fileName}" style="display: inline-block; background: #E10600; color: #FFFFFF; font-weight: bold; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-size: 12px;">📥 Click to Download / View Attachment</a>
+          </div>
+        `;
+      }
+
+      // Automatically Insert into Supabase DB
+      const { data: newDoc, error } = await supabase
+        .from('docs')
+        .insert({
+          title: docTitle,
+          content: finalContent,
+          category: category || 'general',
+          project_id: projectId || null,
+          author_id: currentUserId || null,
+        })
+        .select('*')
+        .single();
+
+      if (!error && newDoc) {
+        setTitle('');
+        setContent('');
+        setIsModalOpen(false);
+        await fetchDocsAndProjects();
+      }
+    } catch (err) {
+      console.error('Auto upload doc error:', err);
     }
-
-    setAttachmentName(fileName);
-
-    if (ext === 'txt' || ext === 'md') {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const text = event.target?.result as string;
-        const htmlFormatted = `<pre style="font-family: inherit; whitespace: pre-wrap;">${text}</pre>`;
-        setContent((prev) => (prev ? `${prev}<br/>${htmlFormatted}` : htmlFormatted));
-        setUploadingFile(false);
-      };
-      reader.readAsText(file);
-    } else {
-      // For .pdf, .docx, read as Data URL attachment
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        setAttachmentUrl(dataUrl);
-
-        const attachmentHtml = `<div style="padding: 10px; background: #0A0A0A; border: 1px solid #262626; border-radius: 8px; margin-top: 10px;">
-          <strong>📄 Attached File: ${fileName}</strong>
-        </div>`;
-        setContent((prev) => (prev ? `${prev}<br/>${attachmentHtml}` : attachmentHtml));
-        setUploadingFile(false);
-      };
-      reader.readAsDataURL(file);
-    }
+    setUploadingFile(false);
   };
 
   const handleCreateDoc = async (e: React.FormEvent) => {
@@ -126,15 +141,29 @@ export default function DocsPage() {
       if (!error && newDoc) {
         setTitle('');
         setContent('');
-        setAttachmentName(null);
-        setAttachmentUrl(null);
         setIsModalOpen(false);
-        fetchDocsAndProjects();
+        await fetchDocsAndProjects();
       }
     } catch (err) {
       console.error('Create doc error:', err);
     }
     setSaving(false);
+  };
+
+  const handleDeleteDoc = async (e: React.MouseEvent, docId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!confirm('Are you sure you want to delete this document?')) return;
+
+    setDocs((prev) => prev.filter((d) => d.id !== docId));
+    if (selectedDoc?.id === docId) setSelectedDoc(null);
+
+    try {
+      await supabase.from('docs').delete().eq('id', docId);
+    } catch (err) {
+      console.error('Delete doc error:', err);
+    }
   };
 
   // Feature 9: Convert Bullet/Line to Task Handler
@@ -189,7 +218,7 @@ export default function DocsPage() {
             Agency Docs & Knowledge Base
           </h1>
           <p className="text-xs text-[#A3A3A3] mt-1">
-            Internal SOPs, client brand guidelines, API specs, PDF/DOCX attachments & 1-click Action Item task conversion.
+            Upload PDF, DOCX, MD & TXT files or create rich-text SOPs with 1-click Action Item task conversion.
           </p>
         </div>
 
@@ -197,7 +226,7 @@ export default function DocsPage() {
           onClick={() => setIsModalOpen(true)}
           className="bg-[#E10600] hover:bg-[#FF3B3B] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#E10600]/20 transition"
         >
-          <Plus className="w-4 h-4" /> Create / Upload Document
+          <Plus className="w-4 h-4" /> Upload / Create Document
         </button>
       </div>
 
@@ -238,60 +267,82 @@ export default function DocsPage() {
           <div
             key={doc.id}
             onClick={() => setSelectedDoc(doc)}
-            className="bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] hover:border-[#E10600]/50 rounded-xl p-5 cursor-pointer transition flex flex-col justify-between space-y-3 group shadow-lg"
+            className="bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] hover:border-[#E10600]/50 rounded-xl p-5 cursor-pointer transition flex flex-col justify-between space-y-4 group shadow-lg"
           >
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#0A0A0A] border border-[#262626] text-[#E10600]">
                   {doc.category.replace('_', ' ')}
                 </span>
-                <span className="text-[10px] text-[#737373]">{formatDate(doc.updated_at)}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-[#737373]">{formatDate(doc.created_at)}</span>
+                  <button
+                    onClick={(e) => handleDeleteDoc(e, doc.id)}
+                    title="Delete Document"
+                    className="p-1 text-[#737373] hover:text-[#FF3B3B] hover:bg-[#262626] rounded transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
-              <h2 className="text-base font-bold text-white group-hover:text-[#FF3B3B] transition flex items-center gap-1.5">
+              <h2 className="text-base font-bold text-white group-hover:text-[#FF3B3B] transition flex items-center gap-2">
                 <FileText className="w-4 h-4 text-[#E10600] shrink-0" />
-                <span>{doc.title}</span>
+                <span className="truncate">{doc.title}</span>
               </h2>
             </div>
 
-            {doc.project && (
-              <div className="p-2 bg-[#0A0A0A] border border-[#262626] rounded-lg text-xs text-[#A3A3A3] flex items-center gap-1.5">
-                <FolderKanban className="w-3.5 h-3.5 text-[#E10600]" />
-                <span className="truncate">Project: <strong className="text-white">{doc.project.name}</strong></span>
-              </div>
-            )}
+            <div className="pt-3 border-t border-[#262626] flex items-center justify-between text-xs text-[#A3A3A3]">
+              <span className="flex items-center gap-1 text-[#E10600] font-bold">
+                <Eye className="w-3.5 h-3.5" /> Click to View Doc
+              </span>
+              {doc.project && (
+                <span className="text-[10px] text-[#737373] truncate max-w-[120px]">{doc.project.name}</span>
+              )}
+            </div>
           </div>
         ))}
 
         {filteredDocs.length === 0 && (
-          <div className="col-span-full p-12 text-center bg-[#141414] border border-[#262626] rounded-xl">
-            <FileText className="w-10 h-10 text-[#737373] mx-auto mb-3" />
-            <p className="text-sm font-semibold text-white">No documents found in this category</p>
-            <p className="text-xs text-[#A3A3A3] mt-1">Click &quot;Create / Upload Document&quot; to add agency SOPs, PDF, DOCX, or meeting notes.</p>
+          <div className="col-span-full p-12 text-center bg-[#141414] border border-[#262626] rounded-xl space-y-3">
+            <FileText className="w-10 h-10 text-[#737373] mx-auto" />
+            <p className="text-sm font-semibold text-white">No documents uploaded yet</p>
+            <p className="text-xs text-[#A3A3A3]">Click &quot;Upload / Create Document&quot; above to select a PDF, DOCX, MD, or TXT file from your PC.</p>
           </div>
         )}
       </div>
 
       {/* Selected Doc Viewer & Meeting Action Item Converter Modal */}
       {selectedDoc && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#141414] border border-[#262626] rounded-xl w-full max-w-2xl p-6 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#141414] border border-[#262626] rounded-2xl w-full max-w-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[#262626] pb-3">
               <div>
                 <span className="text-[10px] font-mono text-[#E10600] uppercase font-bold">
                   {selectedDoc.category.replace('_', ' ')}
                 </span>
-                <h2 className="text-lg font-bold text-white">{selectedDoc.title}</h2>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-[#E10600]" />
+                  {selectedDoc.title}
+                </h2>
               </div>
-              <button onClick={() => setSelectedDoc(null)} className="text-[#737373] hover:text-white">✕</button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={(e) => handleDeleteDoc(e, selectedDoc.id)}
+                  className="px-3 py-1 bg-[#7A0000]/30 hover:bg-[#7A0000] border border-[#E10600] text-white text-xs font-bold rounded-lg transition flex items-center gap-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Delete
+                </button>
+                <button onClick={() => setSelectedDoc(null)} className="text-[#737373] hover:text-white p-1">✕</button>
+              </div>
             </div>
 
-            {/* Document Content View */}
-            <div className="prose prose-invert max-w-none text-xs text-[#E5E5E5] space-y-2 p-4 bg-[#0A0A0A] border border-[#262626] rounded-xl min-h-[150px]">
-              <div dangerouslySetInnerHTML={{ __html: selectedDoc.content || '<p>No content written.</p>' }} />
+            {/* Document Rendered Content View */}
+            <div className="prose prose-invert max-w-none text-xs text-[#E5E5E5] space-y-3 p-5 bg-[#0A0A0A] border border-[#262626] rounded-xl min-h-[200px]">
+              <div dangerouslySetInnerHTML={{ __html: selectedDoc.content || '<p>No document text found.</p>' }} />
             </div>
 
-            {/* Feature 9: 1-Click Action Item to Task Converter */}
+            {/* Action Item Converter */}
             <div className="p-4 bg-[#0A0A0A] border border-[#262626] rounded-xl space-y-2">
               <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
                 <Zap className="w-3.5 h-3.5 text-[#E10600]" />
@@ -335,28 +386,28 @@ export default function DocsPage() {
 
       {/* Create / Upload Document Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#141414] border border-[#262626] rounded-xl w-full max-w-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#141414] border border-[#262626] rounded-2xl w-full max-w-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[#262626] pb-3">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <FileText className="w-5 h-5 text-[#E10600]" />
-                Create or Upload Agency Document
+                Upload or Create Document
               </h3>
               <button onClick={() => setIsModalOpen(false)} className="text-[#737373] hover:text-white">✕</button>
             </div>
 
-            {/* Upload File Banner (.pdf, .docx, .md, .txt) */}
-            <div className="p-4 bg-[#0A0A0A] border-2 border-dashed border-[#262626] hover:border-[#E10600]/60 rounded-xl transition text-center space-y-2">
-              <Upload className="w-6 h-6 text-[#E10600] mx-auto" />
+            {/* Instant File Upload Area (.pdf, .docx, .md, .txt) */}
+            <div className="p-5 bg-[#0A0A0A] border-2 border-dashed border-[#262626] hover:border-[#E10600]/80 rounded-xl transition text-center space-y-3">
+              <Upload className="w-7 h-7 text-[#E10600] mx-auto animate-pulse" />
               <div>
-                <p className="text-xs font-bold text-white">Import File from PC (.PDF, .DOCX, .MD, .TXT)</p>
+                <p className="text-xs font-bold text-white">Direct PC File Upload (.PDF, .DOCX, .MD, .TXT)</p>
                 <p className="text-[10px] text-[#A3A3A3] mt-0.5">
-                  Select any document file to automatically parse its contents and attach it to your workspace.
+                  Click below to pick a document file from your computer. It will automatically upload and save into your workspace!
                 </p>
               </div>
 
-              <label className="inline-block px-4 py-1.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-md shadow-[#E10600]/20">
-                {uploadingFile ? 'Parsing File...' : 'Choose PDF, DOCX, MD, or TXT File'}
+              <label className="inline-block px-5 py-2 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-lg shadow-[#E10600]/30">
+                {uploadingFile ? 'Uploading & Saving Document...' : '📂 Choose File from Computer'}
                 <input
                   type="file"
                   accept=".pdf,.docx,.doc,.md,.txt"
@@ -364,12 +415,12 @@ export default function DocsPage() {
                   className="hidden"
                 />
               </label>
+            </div>
 
-              {attachmentName && (
-                <div className="text-xs text-emerald-400 font-semibold flex items-center justify-center gap-1">
-                  <Paperclip className="w-3.5 h-3.5" /> File Selected: {attachmentName}
-                </div>
-              )}
+            <div className="relative flex py-2 items-center">
+              <div className="flex-grow border-t border-[#262626]"></div>
+              <span className="flex-shrink mx-3 text-[10px] font-bold text-[#737373] uppercase tracking-wider">Or Write Manually</span>
+              <div className="flex-grow border-t border-[#262626]"></div>
             </div>
 
             <form onSubmit={handleCreateDoc} className="space-y-4">
