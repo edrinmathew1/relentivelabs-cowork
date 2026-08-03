@@ -6,65 +6,97 @@
   :root {
     --background: 0 0% 4%;
     --foreground: 0 0% 100%;
-
     --card: 0 0% 8%;
     --card-foreground: 0 0% 100%;
-
     --popover: 0 0% 8%;
     --popover-foreground: 0 0% 100%;
-
     --primary: 2 100% 44%;
     --primary-foreground: 0 0% 100%;
-
     --secondary: 0 0% 10%;
     --secondary-foreground: 0 0% 90%;
-
     --muted: 0 0% 9%;
     --muted-foreground: 0 0% 64%;
-
     --accent: 2 100% 44%;
     --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
-
     --border: 0 0% 15%;
     --input: 0 0% 12%;
     --ring: 2 100% 44%;
-
     --radius: 0.375rem;
+  }
+
+  html.light {
+    --background: 0 0% 97%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 2 100% 44%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
   }
 }
 
-body {
-  background-color: #0A0A0A;
-  color: #FFFFFF;
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+/* Light Theme overrides for Tailwind classes */
+html.light body {
+  background-color: #F5F5F5;
+  color: #0A0A0A;
 }
 
-/* Custom sleek scrollbar for Notion-like density */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+html.light aside,
+html.light header {
+  background-color: #FFFFFF !important;
+  border-color: #E5E5E5 !important;
 }
-::-webkit-scrollbar-track {
-  background: #0A0A0A;
+
+html.light main {
+  background-color: #F5F5F5 !important;
 }
-::-webkit-scrollbar-thumb {
-  background: #262626;
-  border-radius: 3px;
+
+html.light .bg-\[\#141414\] {
+  background-color: #FFFFFF !important;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #E10600;
+
+html.light .bg-\[\#0A0A0A\] {
+  background-color: #FAFAFA !important;
+}
+
+html.light .border-\[\#262626\],
+html.light .border-\[\#1F1F1F\] {
+  border-color: #E5E5E5 !important;
+}
+
+html.light .text-white {
+  color: #0A0A0A !important;
+}
+
+html.light .text-\[\#A3A3A3\],
+html.light .text-\[\#737373\] {
+  color: #525252 !important;
+}
+
+html.light .text-\[\#E5E5E5\] {
+  color: #171717 !important;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: #F5F5F5;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #D4D4D4;
 }
 
 /* Tiptap rich text styling */
 .ProseMirror {
   outline: none;
   min-height: 120px;
-  color: #E5E5E5;
+  color: inherit;
   font-size: 0.875rem;
   line-height: 1.5;
 }
@@ -82,7 +114,7 @@ body {
 }
 
 .ProseMirror h1, .ProseMirror h2, .ProseMirror h3 {
-  color: #FFFFFF;
+  color: inherit;
   font-weight: 600;
   margin-top: 1rem;
   margin-bottom: 0.5rem;
@@ -94,8 +126,8 @@ body {
 }
 
 .ProseMirror code {
-  background-color: #1F1F1F;
-  color: #FF3B3B;
+  background-color: rgba(225, 6, 0, 0.1);
+  color: #E10600;
   padding: 0.15rem 0.35rem;
   border-radius: 0.25rem;
   font-size: 0.8em;
@@ -104,17 +136,8 @@ body {
 
 .mention {
   background-color: rgba(225, 6, 0, 0.2);
-  color: #FF3B3B;
+  color: #E10600;
   padding: 0.1rem 0.3rem;
   border-radius: 0.25rem;
   font-weight: 500;
-}
-
-/* Heatmap cell grid styling */
-.contribution-cell {
-  transition: all 0.2s ease-in-out;
-}
-.contribution-cell:hover {
-  transform: scale(1.2);
-  box-shadow: 0 0 8px rgba(225, 6, 0, 0.6);
 }

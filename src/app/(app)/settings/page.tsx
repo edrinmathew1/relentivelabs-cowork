@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Profile } from '@/types';
-import { Settings as SettingsIcon, User, Image, Save, CheckCircle2, Upload, AlertCircle } from 'lucide-react';
+import { useTheme } from '@/components/providers/theme-provider';
+import { Settings as SettingsIcon, User, Image, Save, CheckCircle2, Upload, AlertCircle, Sun, Moon } from 'lucide-react';
 
 export default function SettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -16,6 +17,7 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const { theme, setTheme } = useTheme();
   const supabase = createClient();
 
   useEffect(() => {
@@ -45,7 +47,6 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate image file type & size (max 5MB)
     if (!file.type.startsWith('image/')) {
       setErrorMsg('Please select a valid image file (PNG, JPG, WebP).');
       return;
@@ -59,7 +60,6 @@ export default function SettingsPage() {
     setErrorMsg(null);
 
     try {
-      // 1. Try uploading to Supabase Storage bucket 'avatars'
       const fileExt = file.name.split('.').pop();
       const fileName = `${profile?.id || 'avatar'}_${Date.now()}.${fileExt}`;
       const filePath = `public/${fileName}`;
@@ -80,7 +80,6 @@ export default function SettingsPage() {
         }
       }
 
-      // 2. Fallback to Data URL if Storage bucket is not configured yet
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
@@ -134,17 +133,17 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
           <SettingsIcon className="w-6 h-6 text-[#E10600]" />
-          Account & Profile Settings
+          Account & Workspace Settings
         </h1>
         <p className="text-xs text-[#A3A3A3] mt-1">
-          Manage your personal agency identity, title, profile picture avatar & preferences.
+          Manage your theme, personal agency identity, profile picture & preferences.
         </p>
       </div>
 
       {saved && (
         <div className="p-3 bg-emerald-950/40 border border-emerald-500 text-emerald-300 rounded-xl text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>Profile updated successfully! Refresh to see avatar changes everywhere.</span>
+          <span>Settings saved successfully!</span>
         </div>
       )}
 
@@ -154,6 +153,45 @@ export default function SettingsPage() {
           <span>{errorMsg}</span>
         </div>
       )}
+
+      {/* Theme Preference Switcher Box */}
+      <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
+        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+          <Sun className="w-4 h-4 text-[#E10600]" />
+          Workspace Color Theme
+        </h3>
+        <p className="text-xs text-[#A3A3A3]">
+          Choose between Dark Mode (Default) and Light Mode (White & Red theme).
+        </p>
+
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => setTheme('dark')}
+            className={`flex-1 p-3 rounded-xl border font-bold text-xs flex items-center justify-center gap-2 transition ${
+              theme === 'dark'
+                ? 'bg-[#0A0A0A] border-[#E10600] text-white shadow-md shadow-[#E10600]/20'
+                : 'bg-[#0A0A0A] border-[#262626] text-[#A3A3A3] hover:text-white'
+            }`}
+          >
+            <Moon className="w-4 h-4 text-[#E10600]" />
+            Dark Mode (Default)
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTheme('light')}
+            className={`flex-1 p-3 rounded-xl border font-bold text-xs flex items-center justify-center gap-2 transition ${
+              theme === 'light'
+                ? 'bg-white border-[#E10600] text-slate-900 shadow-md shadow-[#E10600]/20'
+                : 'bg-[#0A0A0A] border-[#262626] text-[#A3A3A3] hover:text-white'
+            }`}
+          >
+            <Sun className="w-4 h-4 text-[#E10600]" />
+            Light Mode (White & Red)
+          </button>
+        </div>
+      </div>
 
       <form onSubmit={handleSaveSettings} className="bg-[#141414] border border-[#262626] rounded-xl p-6 shadow-2xl space-y-6">
         {/* Avatar Preview & Direct PC Upload */}
@@ -174,7 +212,6 @@ export default function SettingsPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {/* Direct PC File Input */}
               <label className="px-3 py-1.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg cursor-pointer transition flex items-center gap-1.5 shadow-md shadow-[#E10600]/20">
                 <Upload className="w-3.5 h-3.5" />
                 {uploading ? 'Uploading...' : 'Upload Image from PC'}
