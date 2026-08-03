@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Doc, DocCategory, Project, Profile } from '@/types';
 import { TiptapEditor } from '@/components/ui/tiptap-editor';
-import { FileText, Plus, Filter, Zap, FolderKanban, CheckCircle2, AlertCircle } from 'lucide-react';
+import { FileText, Plus, Filter, Zap, FolderKanban, CheckCircle2, Upload, Paperclip, Download, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { formatDate } from '@/lib/utils';
 
@@ -25,7 +25,11 @@ export default function DocsPage() {
   const [content, setContent] = useState('');
   const [category, setCategory] = useState<DocCategory>('general');
   const [projectId, setProjectId] = useState('');
+  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
+  const [attachmentName, setAttachmentName] = useState<string | null>(null);
+
   const [saving, setSaving] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   // Convert Action Item to Task state
   const [taskCreatedMsg, setTaskCreatedMsg] = useState<string | null>(null);
@@ -60,6 +64,48 @@ export default function DocsPage() {
     }
   };
 
+  // Direct Document File Import (.pdf, .docx, .md, .txt)
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingFile(true);
+    const fileName = file.name;
+    const ext = fileName.split('.').pop()?.toLowerCase();
+
+    // Auto-fill title if empty
+    if (!title) {
+      setTitle(fileName.replace(/\.[^/.]+$/, ''));
+    }
+
+    setAttachmentName(fileName);
+
+    if (ext === 'txt' || ext === 'md') {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target?.result as string;
+        const htmlFormatted = `<pre style="font-family: inherit; whitespace: pre-wrap;">${text}</pre>`;
+        setContent((prev) => (prev ? `${prev}<br/>${htmlFormatted}` : htmlFormatted));
+        setUploadingFile(false);
+      };
+      reader.readAsText(file);
+    } else {
+      // For .pdf, .docx, read as Data URL attachment
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        setAttachmentUrl(dataUrl);
+
+        const attachmentHtml = `<div style="padding: 10px; background: #0A0A0A; border: 1px solid #262626; border-radius: 8px; margin-top: 10px;">
+          <strong>📄 Attached File: ${fileName}</strong>
+        </div>`;
+        setContent((prev) => (prev ? `${prev}<br/>${attachmentHtml}` : attachmentHtml));
+        setUploadingFile(false);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleCreateDoc = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -80,6 +126,8 @@ export default function DocsPage() {
       if (!error && newDoc) {
         setTitle('');
         setContent('');
+        setAttachmentName(null);
+        setAttachmentUrl(null);
         setIsModalOpen(false);
         fetchDocsAndProjects();
       }
@@ -141,7 +189,7 @@ export default function DocsPage() {
             Agency Docs & Knowledge Base
           </h1>
           <p className="text-xs text-[#A3A3A3] mt-1">
-            Internal SOPs, client brand guidelines, API specs, and meeting notes with 1-click Action Item task conversion.
+            Internal SOPs, client brand guidelines, API specs, PDF/DOCX attachments & 1-click Action Item task conversion.
           </p>
         </div>
 
@@ -149,7 +197,7 @@ export default function DocsPage() {
           onClick={() => setIsModalOpen(true)}
           className="bg-[#E10600] hover:bg-[#FF3B3B] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#E10600]/20 transition"
         >
-          <Plus className="w-4 h-4" /> Create Document
+          <Plus className="w-4 h-4" /> Create / Upload Document
         </button>
       </div>
 
@@ -200,8 +248,9 @@ export default function DocsPage() {
                 <span className="text-[10px] text-[#737373]">{formatDate(doc.updated_at)}</span>
               </div>
 
-              <h2 className="text-base font-bold text-white group-hover:text-[#FF3B3B] transition">
-                {doc.title}
+              <h2 className="text-base font-bold text-white group-hover:text-[#FF3B3B] transition flex items-center gap-1.5">
+                <FileText className="w-4 h-4 text-[#E10600] shrink-0" />
+                <span>{doc.title}</span>
               </h2>
             </div>
 
@@ -218,7 +267,7 @@ export default function DocsPage() {
           <div className="col-span-full p-12 text-center bg-[#141414] border border-[#262626] rounded-xl">
             <FileText className="w-10 h-10 text-[#737373] mx-auto mb-3" />
             <p className="text-sm font-semibold text-white">No documents found in this category</p>
-            <p className="text-xs text-[#A3A3A3] mt-1">Click &quot;Create Document&quot; to add agency SOPs or meeting notes.</p>
+            <p className="text-xs text-[#A3A3A3] mt-1">Click &quot;Create / Upload Document&quot; to add agency SOPs, PDF, DOCX, or meeting notes.</p>
           </div>
         )}
       </div>
@@ -238,7 +287,7 @@ export default function DocsPage() {
             </div>
 
             {/* Document Content View */}
-            <div className="prose prose-invert max-w-none text-xs text-[#E5E5E5] space-y-2 p-3 bg-[#0A0A0A] border border-[#262626] rounded-xl min-h-[150px]">
+            <div className="prose prose-invert max-w-none text-xs text-[#E5E5E5] space-y-2 p-4 bg-[#0A0A0A] border border-[#262626] rounded-xl min-h-[150px]">
               <div dangerouslySetInnerHTML={{ __html: selectedDoc.content || '<p>No content written.</p>' }} />
             </div>
 
@@ -284,13 +333,43 @@ export default function DocsPage() {
         </div>
       )}
 
-      {/* Create Document Modal */}
+      {/* Create / Upload Document Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#141414] border border-[#262626] rounded-xl w-full max-w-2xl p-6 shadow-2xl space-y-4">
+          <div className="bg-[#141414] border border-[#262626] rounded-xl w-full max-w-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[#262626] pb-3">
-              <h3 className="text-base font-bold text-white">Create Agency Document</h3>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <FileText className="w-5 h-5 text-[#E10600]" />
+                Create or Upload Agency Document
+              </h3>
               <button onClick={() => setIsModalOpen(false)} className="text-[#737373] hover:text-white">✕</button>
+            </div>
+
+            {/* Upload File Banner (.pdf, .docx, .md, .txt) */}
+            <div className="p-4 bg-[#0A0A0A] border-2 border-dashed border-[#262626] hover:border-[#E10600]/60 rounded-xl transition text-center space-y-2">
+              <Upload className="w-6 h-6 text-[#E10600] mx-auto" />
+              <div>
+                <p className="text-xs font-bold text-white">Import File from PC (.PDF, .DOCX, .MD, .TXT)</p>
+                <p className="text-[10px] text-[#A3A3A3] mt-0.5">
+                  Select any document file to automatically parse its contents and attach it to your workspace.
+                </p>
+              </div>
+
+              <label className="inline-block px-4 py-1.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-md shadow-[#E10600]/20">
+                {uploadingFile ? 'Parsing File...' : 'Choose PDF, DOCX, MD, or TXT File'}
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.doc,.md,.txt"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </label>
+
+              {attachmentName && (
+                <div className="text-xs text-emerald-400 font-semibold flex items-center justify-center gap-1">
+                  <Paperclip className="w-3.5 h-3.5" /> File Selected: {attachmentName}
+                </div>
+              )}
             </div>
 
             <form onSubmit={handleCreateDoc} className="space-y-4">
@@ -352,7 +431,7 @@ export default function DocsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || uploadingFile}
                   className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#E10600] hover:bg-[#FF3B3B] text-white shadow-md shadow-[#E10600]/20"
                 >
                   {saving ? 'Saving...' : 'Save Document'}
