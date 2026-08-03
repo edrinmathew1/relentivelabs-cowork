@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Doc, DocCategory, Project, Profile } from '@/types';
 import { TiptapEditor } from '@/components/ui/tiptap-editor';
-import { FileText, Plus, Zap, FolderKanban, CheckCircle2, Upload, Paperclip, Download, Trash2, AlertCircle, Eye } from 'lucide-react';
+import { FileText, Plus, Zap, FolderKanban, CheckCircle2, Upload, Paperclip, Download, Trash2, AlertCircle, Eye, FileCheck } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 export default function DocsPage() {
@@ -24,6 +24,7 @@ export default function DocsPage() {
   const [content, setContent] = useState('');
   const [category, setCategory] = useState<DocCategory>('general');
   const [projectId, setProjectId] = useState('');
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -64,22 +65,27 @@ export default function DocsPage() {
     }
   };
 
-  // Instant Direct File Upload & Auto-Save Handler (.pdf, .docx, .md, .txt)
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Device File Select Handler (.pdf, .docx, .md, .txt) - Populates form WITHOUT auto-saving
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setUploadingFile(true);
     const fileName = file.name;
     const ext = fileName.split('.').pop()?.toLowerCase();
-    const docTitle = title.trim() || fileName.replace(/\.[^/.]+$/, '');
+
+    // Auto-fill title if empty
+    if (!title.trim()) {
+      setTitle(fileName.replace(/\.[^/.]+$/, ''));
+    }
+    setSelectedFileName(fileName);
 
     try {
-      let finalContent = '';
+      let fileHtml = '';
 
       if (ext === 'txt' || ext === 'md') {
         const text = await file.text();
-        finalContent = `<div style="font-family: monospace; white-space: pre-wrap; background: #0A0A0A; padding: 12px; border-radius: 8px; border: 1px solid #262626;">${text}</div>`;
+        fileHtml = `<div style="font-family: monospace; white-space: pre-wrap; background: #0A0A0A; padding: 12px; border-radius: 8px; border: 1px solid #262626;">${text}</div>`;
       } else {
         // For .pdf, .docx, read as Data URL
         const dataUrl = await new Promise<string>((resolve) => {
@@ -88,7 +94,7 @@ export default function DocsPage() {
           reader.readAsDataURL(file);
         });
 
-        finalContent = `
+        fileHtml = `
           <div style="padding: 16px; background: #0A0A0A; border: 1px solid #262626; border-radius: 12px; margin-bottom: 12px;">
             <div style="font-weight: bold; color: #FFFFFF; font-size: 14px; margin-bottom: 8px;">📄 Attached Document: ${fileName}</div>
             <a href="${dataUrl}" download="${fileName}" style="display: inline-block; background: #E10600; color: #FFFFFF; font-weight: bold; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-size: 12px;">📥 Click to Download / View Attachment</a>
@@ -96,27 +102,9 @@ export default function DocsPage() {
         `;
       }
 
-      // Automatically Insert into Supabase DB
-      const { data: newDoc, error } = await supabase
-        .from('docs')
-        .insert({
-          title: docTitle,
-          content: finalContent,
-          category: category || 'general',
-          project_id: projectId || null,
-          author_id: currentUserId || null,
-        })
-        .select('*')
-        .single();
-
-      if (!error && newDoc) {
-        setTitle('');
-        setContent('');
-        setIsModalOpen(false);
-        await fetchDocsAndProjects();
-      }
+      setContent(fileHtml);
     } catch (err) {
-      console.error('Auto upload doc error:', err);
+      console.error('File parse error:', err);
     }
     setUploadingFile(false);
   };
@@ -141,6 +129,7 @@ export default function DocsPage() {
       if (!error && newDoc) {
         setTitle('');
         setContent('');
+        setSelectedFileName(null);
         setIsModalOpen(false);
         await fetchDocsAndProjects();
       }
@@ -223,7 +212,12 @@ export default function DocsPage() {
         </div>
 
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            setTitle('');
+            setContent('');
+            setSelectedFileName(null);
+            setIsModalOpen(true);
+          }}
           className="bg-[#E10600] hover:bg-[#FF3B3B] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#E10600]/20 transition"
         >
           <Plus className="w-4 h-4" /> Upload / Create Document
@@ -307,7 +301,7 @@ export default function DocsPage() {
           <div className="col-span-full p-12 text-center bg-[#141414] border border-[#262626] rounded-xl space-y-3">
             <FileText className="w-10 h-10 text-[#737373] mx-auto" />
             <p className="text-sm font-semibold text-white">No documents uploaded yet</p>
-            <p className="text-xs text-[#A3A3A3]">Click &quot;Upload / Create Document&quot; above to select a PDF, DOCX, MD, or TXT file from your PC.</p>
+            <p className="text-xs text-[#A3A3A3]">Click &quot;Upload / Create Document&quot; above to select a PDF, DOCX, MD, or TXT file from your device.</p>
           </div>
         )}
       </div>
@@ -396,30 +390,37 @@ export default function DocsPage() {
               <button onClick={() => setIsModalOpen(false)} className="text-[#737373] hover:text-white">✕</button>
             </div>
 
-            {/* Instant File Upload Area (.pdf, .docx, .md, .txt) */}
+            {/* Device File Select Area (.pdf, .docx, .md, .txt) */}
             <div className="p-5 bg-[#0A0A0A] border-2 border-dashed border-[#262626] hover:border-[#E10600]/80 rounded-xl transition text-center space-y-3">
               <Upload className="w-7 h-7 text-[#E10600] mx-auto animate-pulse" />
               <div>
-                <p className="text-xs font-bold text-white">Direct PC File Upload (.PDF, .DOCX, .MD, .TXT)</p>
+                <p className="text-xs font-bold text-white">Import File from Device (.PDF, .DOCX, .MD, .TXT)</p>
                 <p className="text-[10px] text-[#A3A3A3] mt-0.5">
-                  Click below to pick a document file from your computer. It will automatically upload and save into your workspace!
+                  Select a file to automatically fill title and contents into the editor below before saving.
                 </p>
               </div>
 
               <label className="inline-block px-5 py-2 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-lg shadow-[#E10600]/30">
-                {uploadingFile ? 'Uploading & Saving Document...' : '📂 Choose File from Computer'}
+                {uploadingFile ? 'Parsing File...' : '📂 Choose File from Device'}
                 <input
                   type="file"
                   accept=".pdf,.docx,.doc,.md,.txt"
-                  onChange={handleFileUpload}
+                  onChange={handleFileSelect}
                   className="hidden"
                 />
               </label>
+
+              {selectedFileName && (
+                <div className="p-2 bg-emerald-950/40 border border-emerald-500/50 rounded-lg text-xs text-emerald-300 font-semibold flex items-center justify-center gap-1.5 animate-pulse">
+                  <FileCheck className="w-4 h-4 text-emerald-400" />
+                  File Selected: {selectedFileName}
+                </div>
+              )}
             </div>
 
             <div className="relative flex py-2 items-center">
               <div className="flex-grow border-t border-[#262626]"></div>
-              <span className="flex-shrink mx-3 text-[10px] font-bold text-[#737373] uppercase tracking-wider">Or Write Manually</span>
+              <span className="flex-shrink mx-3 text-[10px] font-bold text-[#737373] uppercase tracking-wider">Document Details</span>
               <div className="flex-grow border-t border-[#262626]"></div>
             </div>
 
