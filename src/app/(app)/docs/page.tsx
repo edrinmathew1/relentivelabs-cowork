@@ -29,7 +29,8 @@ export default function DocsPage() {
   const [saving, setSaving] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
 
-  // Convert Action Item to Task state
+  // Error feedback
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [taskCreatedMsg, setTaskCreatedMsg] = useState<string | null>(null);
 
   const supabase = createClient();
@@ -48,19 +49,18 @@ export default function DocsPage() {
         .select('*, project:projects(*), author:profiles(*)')
         .order('created_at', { ascending: false });
 
-      if (docsErr || !docsData) {
-        const { data: fallbackDocs } = await supabase
-          .from('docs')
-          .select('*')
-          .order('created_at', { ascending: false });
-        docsData = fallbackDocs;
+      if (docsErr) {
+        console.warn('Docs query error:', docsErr.message);
+        if (docsErr.message.includes('relation "public.docs" does not exist') || docsErr.message.includes('does not exist')) {
+          setErrorMsg('The "docs" table is missing in Supabase. Please run the SQL schema migration in Supabase SQL Editor.');
+        }
       }
 
       if (docsData) setDocs(docsData as any);
 
       const { data: projectsData } = await supabase.from('projects').select('*');
       if (projectsData) setProjects(projectsData as any);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Fetch docs error:', err);
     }
   };
@@ -71,6 +71,7 @@ export default function DocsPage() {
     if (!file) return;
 
     setUploadingFile(true);
+    setErrorMsg(null);
     const fileName = file.name;
     const ext = fileName.split('.').pop()?.toLowerCase();
 
@@ -103,8 +104,9 @@ export default function DocsPage() {
       }
 
       setContent(fileHtml);
-    } catch (err) {
+    } catch (err: any) {
       console.error('File parse error:', err);
+      setErrorMsg('Failed to parse file content.');
     }
     setUploadingFile(false);
   };
@@ -112,6 +114,7 @@ export default function DocsPage() {
   const handleCreateDoc = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setErrorMsg(null);
 
     try {
       const { data: newDoc, error } = await supabase
@@ -126,15 +129,20 @@ export default function DocsPage() {
         .select('*')
         .single();
 
-      if (!error && newDoc) {
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      if (newDoc) {
         setTitle('');
         setContent('');
         setSelectedFileName(null);
         setIsModalOpen(false);
         await fetchDocsAndProjects();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Create doc error:', err);
+      setErrorMsg(err.message || 'Failed to save document into Supabase.');
     }
     setSaving(false);
   };
@@ -216,6 +224,7 @@ export default function DocsPage() {
             setTitle('');
             setContent('');
             setSelectedFileName(null);
+            setErrorMsg(null);
             setIsModalOpen(true);
           }}
           className="bg-[#E10600] hover:bg-[#FF3B3B] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#E10600]/20 transition"
@@ -223,6 +232,13 @@ export default function DocsPage() {
           <Plus className="w-4 h-4" /> Upload / Create Document
         </button>
       </div>
+
+      {errorMsg && (
+        <div className="p-4 bg-[#7A0000]/30 border border-[#E10600] text-red-200 rounded-xl text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-[#E10600] shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
 
       {taskCreatedMsg && (
         <div className="p-3 bg-emerald-950/40 border border-emerald-500 text-emerald-300 rounded-xl text-xs flex items-center gap-2 animate-bounce">
@@ -389,6 +405,13 @@ export default function DocsPage() {
               </h3>
               <button onClick={() => setIsModalOpen(false)} className="text-[#737373] hover:text-white">✕</button>
             </div>
+
+            {errorMsg && (
+              <div className="p-3 bg-[#7A0000]/30 border border-[#E10600] text-red-200 rounded-xl text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-[#E10600] shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
 
             {/* Device File Select Area (.pdf, .docx, .md, .txt) */}
             <div className="p-5 bg-[#0A0A0A] border-2 border-dashed border-[#262626] hover:border-[#E10600]/80 rounded-xl transition text-center space-y-3">
