@@ -28,8 +28,10 @@ import {
   GitCommit,
   ExternalLink,
   Activity,
-  FileText,
   Zap,
+  GitBranch,
+  PieChart as PieIcon,
+  CheckSquare,
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import Link from 'next/link';
@@ -108,17 +110,16 @@ export default function DashboardPage() {
 
   const isAdmin = profile?.role === 'admin';
 
+  // 1. Completed Tasks Per Member (Bar Chart Data)
   const memberTaskData = teamMembers.map((member) => {
     const completed = tasks.filter((t) => t.assignee_id === member.id && t.status === 'done').length;
-    const commitCount = commits.filter((c) => c.author_email?.toLowerCase() === member.email.toLowerCase() || c.author_name?.toLowerCase().includes(member.full_name.split(' ')[0].toLowerCase())).length;
-
     return {
       name: member.full_name?.split(' ')[0] || member.email.split('@')[0],
       completed,
-      commits: commitCount,
     };
   });
 
+  // 2. 8-Week Velocity Line Chart Data
   const velocityData = Array.from({ length: 8 }).map((_, idx) => {
     const weekNum = 8 - idx;
     const endDate = new Date();
@@ -138,7 +139,30 @@ export default function DashboardPage() {
     };
   }).reverse();
 
-  // Unified Streak Leaderboard (Checklists + Tasks Completed)
+  // 3. Task Priority Breakdown (Pie Chart Data)
+  const priorityCounts = {
+    urgent: tasks.filter((t) => t.priority === 'urgent').length,
+    high: tasks.filter((t) => t.priority === 'high').length,
+    medium: tasks.filter((t) => t.priority === 'medium').length,
+    low: tasks.filter((t) => t.priority === 'low').length,
+  };
+  const priorityPieData = [
+    { name: 'Urgent 🔥', value: priorityCounts.urgent || 1, color: '#E10600' },
+    { name: 'High', value: priorityCounts.high || 1, color: '#FF3B3B' },
+    { name: 'Medium', value: priorityCounts.medium || 1, color: '#3B82F6' },
+    { name: 'Low', value: priorityCounts.low || 1, color: '#A3A3A3' },
+  ];
+
+  // 4. Task Status Distribution (Bar Chart Data)
+  const statusCounts = [
+    { name: 'Backlog', count: tasks.filter((t) => t.status === 'backlog').length },
+    { name: 'To Do', count: tasks.filter((t) => t.status === 'todo').length },
+    { name: 'In Progress', count: tasks.filter((t) => t.status === 'in_progress').length },
+    { name: 'Review', count: tasks.filter((t) => t.status === 'review').length },
+    { name: 'Done', count: tasks.filter((t) => t.status === 'done').length },
+  ];
+
+  // 5. Unified Daily Streak Leaderboard
   const leaderboardData = teamMembers.map((member) => {
     const listDates = checklists.filter((c) => c.user_id === member.id && c.is_complete).map((c) => c.date);
     const taskDates = tasks
@@ -166,6 +190,7 @@ export default function DashboardPage() {
     return {
       id: member.id,
       name: member.full_name || member.email,
+      avatar: member.avatar_url,
       streak,
     };
   }).sort((a, b) => b.streak - a.streak);
@@ -175,27 +200,16 @@ export default function DashboardPage() {
   const personalDoneTasks = personalTasks.filter((t) => t.status === 'done').length;
 
   return (
-    <div className="space-y-6">
-      {/* Header & Weekly Report Generator Button */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
-            <LayoutDashboard className="w-6 h-6 text-[#E10600]" />
-            {isAdmin ? 'Admin Agency Analytics & GitHub Activity Dashboard' : 'Member Performance Dashboard'}
-          </h1>
-          <p className="text-xs text-[#A3A3A3] mt-1">
-            Realtime team velocity, GitHub commit tracking & unified streak leaderboards.
-          </p>
-        </div>
-
-        <button
-          onClick={handleGenerateWeeklyReport}
-          disabled={generatingReport}
-          className="bg-[#E10600] hover:bg-[#FF3B3B] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#E10600]/20 transition self-start"
-        >
-          <Zap className="w-4 h-4" />
-          {generatingReport ? 'Generating Report...' : '⚡ Generate Weekly Report'}
-        </button>
+    <div className="space-y-8">
+      {/* Dashboard Header */}
+      <div>
+        <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
+          <LayoutDashboard className="w-6 h-6 text-[#E10600]" />
+          {isAdmin ? 'Admin Agency Analytics & Performance Dashboard' : 'Member Productivity Dashboard'}
+        </h1>
+        <p className="text-xs text-[#A3A3A3] mt-1">
+          Realtime velocity metrics, productivity graphs, GitHub codebase activity & streak leaderboards.
+        </p>
       </div>
 
       {reportSuccessMsg && (
@@ -204,11 +218,11 @@ export default function DashboardPage() {
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{reportSuccessMsg}</span>
           </div>
-          <Link href="/docs" className="text-xs font-bold underline text-white">View in Docs →</Link>
+          <Link href="/docs" className="text-xs font-bold underline text-white">View Report in Docs →</Link>
         </div>
       )}
 
-      {/* Top Stat Cards */}
+      {/* Top Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl shadow-lg space-y-1">
           <div className="flex items-center justify-between text-xs text-[#A3A3A3]">
@@ -249,20 +263,140 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Main Combined Feed & Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent Chronological GitHub Code & Task Activity Feed */}
-        <div className="lg:col-span-2 bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl space-y-4">
+      {/* SECTION 1: PRODUCTIVITY & PERFORMANCE GRAPHS GRID */}
+      <div className="space-y-4">
+        <h2 className="text-base font-extrabold text-white tracking-tight flex items-center gap-2 border-b border-[#262626] pb-2">
+          <BarChart2 className="w-5 h-5 text-[#E10600]" />
+          Productivity & Velocity Analytics Graphs
+        </h2>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Graph 1: Completed Tasks Per Team Member */}
+          <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <Users className="w-4 h-4 text-[#E10600]" />
+              Completed Tasks Per Team Member
+            </h3>
+            <div className="h-64 bg-[#0A0A0A] p-3 rounded-xl border border-[#262626]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={memberTaskData}>
+                  <XAxis dataKey="name" stroke="#A3A3A3" fontSize={11} />
+                  <YAxis stroke="#A3A3A3" fontSize={11} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#141414', borderColor: '#262626', borderRadius: '8px', color: '#FFFFFF' }}
+                    itemStyle={{ color: '#FF3B3B' }}
+                  />
+                  <Bar dataKey="completed" fill="#E10600" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Graph 2: 8-Week Team Velocity Line Chart with Report Generator BELOW */}
+          <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-4 flex flex-col justify-between">
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-[#E10600]" />
+                Team Velocity Trend (Past 8 Weeks)
+              </h3>
+              <div className="h-52 bg-[#0A0A0A] p-3 rounded-xl border border-[#262626]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={velocityData}>
+                    <XAxis dataKey="week" stroke="#A3A3A3" fontSize={11} />
+                    <YAxis stroke="#A3A3A3" fontSize={11} allowDecimals={false} />
+                    <Tooltip contentStyle={{ backgroundColor: '#141414', borderColor: '#262626', borderRadius: '8px', color: '#FFFFFF' }} />
+                    <Line type="monotone" dataKey="completed" stroke="#FF3B3B" strokeWidth={3} dot={{ fill: '#E10600' }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Weekly Report Generator Button Positioned Directly Below Velocity Graph */}
+            <div className="pt-2 border-t border-[#262626] flex items-center justify-between gap-3">
+              <span className="text-xs text-[#A3A3A3]">Generate & save this week&apos;s executive report to Docs:</span>
+              <button
+                onClick={handleGenerateWeeklyReport}
+                disabled={generatingReport}
+                className="bg-[#E10600] hover:bg-[#FF3B3B] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#E10600]/20 transition shrink-0"
+              >
+                <Zap className="w-4 h-4" />
+                {generatingReport ? 'Generating Report...' : '⚡ Generate Weekly Report'}
+              </button>
+            </div>
+          </div>
+
+          {/* Graph 3: Task Priority Breakdown (Pie Chart) */}
+          <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <PieIcon className="w-4 h-4 text-[#E10600]" />
+              Task Priority Allocation
+            </h3>
+            <div className="h-60 bg-[#0A0A0A] p-3 rounded-xl border border-[#262626] flex items-center justify-center">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={priorityPieData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {priorityPieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ backgroundColor: '#141414', borderColor: '#262626', borderRadius: '8px', color: '#FFFFFF' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Graph 4: Task Status Distribution (Bar Chart) */}
+          <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <CheckSquare className="w-4 h-4 text-[#E10600]" />
+              Task Pipeline Status Breakdown
+            </h3>
+            <div className="h-60 bg-[#0A0A0A] p-3 rounded-xl border border-[#262626]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={statusCounts}>
+                  <XAxis dataKey="name" stroke="#A3A3A3" fontSize={11} />
+                  <YAxis stroke="#A3A3A3" fontSize={11} allowDecimals={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#141414', borderColor: '#262626', borderRadius: '8px', color: '#FFFFFF' }} />
+                  <Bar dataKey="count" fill="#FF3B3B" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 2: DEDICATED CODEBASE & GITHUB COMMITS SECTION */}
+      <div className="space-y-4">
+        <h2 className="text-base font-extrabold text-white tracking-tight flex items-center gap-2 border-b border-[#262626] pb-2">
+          <GitBranch className="w-5 h-5 text-[#E10600]" />
+          Codebase & GitHub Activity Stream
+        </h2>
+
+        <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl space-y-4">
           <div className="flex items-center justify-between border-b border-[#262626] pb-3">
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Activity className="w-4 h-4 text-[#E10600]" />
-                Recent Code Activity & GitHub Commit Stream
+                Recent Real-Time GitHub Commits Stream
               </h3>
               <p className="text-xs text-[#A3A3A3] mt-0.5">
-                Real-time chronological feed of GitHub code commits linked with task updates.
+                Chronological feed of code commits synced from connected GitHub repositories.
               </p>
             </div>
+            <Link
+              href="/settings"
+              className="px-3 py-1.5 bg-[#0A0A0A] hover:bg-[#262626] border border-[#262626] text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5"
+            >
+              <GitBranch className="w-3.5 h-3.5 text-[#E10600]" /> Manage GitHub Repos
+            </Link>
           </div>
 
           <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
@@ -308,21 +442,51 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+      </div>
 
-        {/* Unified Streak Leaderboard */}
+      {/* SECTION 3: DAILY STREAKS SECTION */}
+      <div className="space-y-4">
+        <h2 className="text-base font-extrabold text-white tracking-tight flex items-center gap-2 border-b border-[#262626] pb-2">
+          <Flame className="w-5 h-5 text-[#E10600]" />
+          Daily Streaks & Consistency Leaderboard
+        </h2>
+
         <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-4">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <Award className="w-4 h-4 text-[#E10600]" />
-            Unified Daily Streak Leaderboard
-          </h3>
-          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+          <div className="flex items-center justify-between border-b border-[#262626] pb-3">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Award className="w-4 h-4 text-[#E10600]" />
+                Unified Daily Streak Rankings
+              </h3>
+              <p className="text-xs text-[#A3A3A3] mt-0.5">
+                Streaks increment when team members complete daily checklists OR ship tasks.
+              </p>
+            </div>
+            <Link
+              href="/checklist"
+              className="px-3 py-1.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg transition"
+            >
+              Go to Daily Checklist →
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {leaderboardData.map((item, idx) => (
-              <div key={item.id} className="p-3 bg-[#0A0A0A] border border-[#262626] rounded-lg flex items-center justify-between text-xs">
+              <div key={item.id} className="p-3.5 bg-[#0A0A0A] border border-[#262626] rounded-xl flex items-center justify-between text-xs">
                 <div className="flex items-center gap-3">
-                  <span className="font-mono font-bold text-[#E10600]">#{idx + 1}</span>
-                  <span className="font-semibold text-white">{item.name}</span>
+                  <span className="font-mono font-bold text-[#E10600] text-sm">#{idx + 1}</span>
+                  <div className="w-8 h-8 rounded-full bg-[#141414] border border-[#262626] flex items-center justify-center font-bold text-white overflow-hidden shrink-0">
+                    {item.avatar ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={item.avatar} alt={item.name} className="w-full h-full object-cover" />
+                    ) : (
+                      item.name.substring(0, 2).toUpperCase()
+                    )}
+                  </div>
+                  <span className="font-semibold text-white truncate">{item.name}</span>
                 </div>
-                <span className="font-bold text-[#FF3B3B] flex items-center gap-1">
+
+                <span className="font-bold text-[#FF3B3B] flex items-center gap-1 shrink-0 bg-[#E10600]/10 border border-[#E10600]/30 px-2.5 py-1 rounded-lg">
                   <Flame className="w-3.5 h-3.5 text-[#E10600]" />
                   {item.streak} Days
                 </span>
