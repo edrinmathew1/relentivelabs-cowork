@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Profile, Invite, Task, DailyChecklist } from '@/types';
-import { Users, Mail, Plus, Shield, Award, Flame, CheckCircle2, Copy, AlertCircle } from 'lucide-react';
+import { Users, Mail, Plus, Shield, Award, Flame, CheckCircle2, UserCheck, Trash2, AlertCircle, Copy } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 export default function TeamPage() {
@@ -18,7 +18,6 @@ export default function TeamPage() {
   const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member');
   const [sending, setSending] = useState(false);
 
-  // Instant Copyable Invite Link State
   const [generatedInviteUrl, setGeneratedInviteUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -37,7 +36,7 @@ export default function TeamPage() {
         if (me) setCurrentProfile(me as Profile);
       }
 
-      const { data: profilesData } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+      const { data: profilesData } = await supabase.from('profiles').select('*').eq('status', 'active').order('created_at', { ascending: false });
       if (profilesData) setMembers(profilesData as Profile[]);
 
       const { data: invitesData } = await supabase.from('invites').select('*').order('created_at', { ascending: false });
@@ -50,6 +49,18 @@ export default function TeamPage() {
       if (checklistsData) setChecklists(checklistsData as DailyChecklist[]);
     } catch (err) {
       console.error('Fetch team error:', err);
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string, memberName: string) => {
+    if (!confirm(`Are you sure you want to remove ${memberName} from the agency workspace?`)) return;
+
+    setMembers((prev) => prev.filter((m) => m.id !== memberId));
+
+    try {
+      await supabase.from('profiles').update({ status: 'deactivated' }).eq('id', memberId);
+    } catch (err) {
+      console.error('Remove member error:', err);
     }
   };
 
@@ -87,6 +98,35 @@ export default function TeamPage() {
     setTimeout(() => setCopied(false), 3000);
   };
 
+  // Calculate Unified Daily Streak (Checklists + Tasks Completed)
+  const calculateMemberStreak = (userId: string) => {
+    const userLists = checklists.filter((c) => c.user_id === userId && c.is_complete).map((c) => c.date);
+    const userDoneTaskDates = tasks
+      .filter((t) => t.assignee_id === userId && t.status === 'done' && t.updated_at)
+      .map((t) => t.updated_at.split('T')[0]);
+
+    const activeDates = new Set([...userLists, ...userDoneTaskDates]);
+
+    let streak = 0;
+    const todayStr = new Date().toISOString().split('T')[0];
+    let checkDate = new Date();
+
+    while (true) {
+      const dStr = checkDate.toISOString().split('T')[0];
+      if (activeDates.has(dStr)) {
+        streak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else {
+        if (dStr === todayStr) {
+          checkDate.setDate(checkDate.getDate() - 1);
+          continue;
+        }
+        break;
+      }
+    }
+    return streak;
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -97,7 +137,7 @@ export default function TeamPage() {
             Team Workspace & Achievements
           </h1>
           <p className="text-xs text-[#A3A3A3] mt-1">
-            Agency team members, Resend email onboarding, and gamified achievement badges.
+            Agency team members, member removal, Resend email onboarding, and unified streak tracking.
           </p>
         </div>
 
@@ -111,7 +151,6 @@ export default function TeamPage() {
         )}
       </div>
 
-      {/* Generated Invite Link Banner */}
       {generatedInviteUrl && (
         <div className="p-4 bg-[#141414] border border-[#E10600] rounded-xl shadow-2xl space-y-2">
           <div className="flex items-center justify-between">
@@ -127,7 +166,7 @@ export default function TeamPage() {
             </button>
           </div>
           <p className="text-xs text-[#A3A3A3]">
-            Resend email dispatched. You can also copy and send this direct link to your teammate via WhatsApp/Discord:
+            Resend email dispatched. You can also copy and send this direct link to your teammate:
           </p>
           <div className="p-2 bg-[#0A0A0A] border border-[#262626] rounded-lg text-xs text-[#E10600] font-mono break-all">
             {generatedInviteUrl}
@@ -139,38 +178,53 @@ export default function TeamPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {members.map((member) => {
           const memberDoneTasks = tasks.filter((t) => t.assignee_id === member.id && t.status === 'done').length;
-          const memberStreak = checklists.filter((c) => c.user_id === member.id && c.is_complete).length;
+          const streak = calculateMemberStreak(member.id);
 
           const badges = [];
-          if (memberStreak >= 3) badges.push({ label: `🔥 Streak Legend (${memberStreak}d)`, color: '#FF3B3B' });
-          if (memberDoneTasks >= 1) badges.push({ label: `🛠️ Task Crusher (${memberDoneTasks} Done)`, color: '#3FBF6C' });
+          if (streak >= 1) badges.push({ label: `🔥 ${streak} Day Streak`, color: '#E10600' });
+          if (memberDoneTasks >= 1) badges.push({ label: `🛠️ ${memberDoneTasks} Tasks Done`, color: '#3FBF6C' });
           if (member.status === 'active') badges.push({ label: '🌟 Active Member', color: '#3B82F6' });
+
+          const canRemove = currentProfile?.role === 'admin' && member.id !== currentProfile.id;
 
           return (
             <div
               key={member.id}
-              className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl flex flex-col justify-between space-y-4"
+              className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl flex flex-col justify-between space-y-4 relative group"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-[#0A0A0A] border-2 border-[#E10600] flex items-center justify-center text-white text-base font-bold shrink-0 overflow-hidden">
-                  {member.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={member.avatar_url} alt={member.full_name} className="w-full h-full object-cover" />
-                  ) : (
-                    member.full_name.substring(0, 2).toUpperCase()
-                  )}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 truncate">
+                  <div className="w-12 h-12 rounded-full bg-[#0A0A0A] border-2 border-[#E10600] flex items-center justify-center text-white text-base font-bold shrink-0 overflow-hidden">
+                    {member.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={member.avatar_url} alt={member.full_name} className="w-full h-full object-cover" />
+                    ) : (
+                      member.full_name.substring(0, 2).toUpperCase()
+                    )}
+                  </div>
+                  <div className="truncate">
+                    <h3 className="text-sm font-bold text-white truncate">{member.full_name}</h3>
+                    <p className="text-xs text-[#A3A3A3] truncate">{member.email}</p>
+                    <span className="text-[10px] text-[#737373] capitalize">{member.title || member.role}</span>
+                  </div>
                 </div>
-                <div className="truncate">
-                  <h3 className="text-sm font-bold text-white truncate">{member.full_name}</h3>
-                  <p className="text-xs text-[#A3A3A3] truncate">{member.email}</p>
-                  <span className="text-[10px] text-[#737373] capitalize">{member.title || member.role}</span>
-                </div>
+
+                {/* Admin Only Remove Member Trigger */}
+                {canRemove && (
+                  <button
+                    onClick={() => handleRemoveMember(member.id, member.full_name)}
+                    title="Remove Member from Agency"
+                    className="p-1.5 text-[#737373] hover:text-[#FF3B3B] hover:bg-[#262626] rounded-lg transition shrink-0"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
 
-              {/* Achievement Badges Area */}
+              {/* Unified Streak & Kudos Badges Area */}
               <div className="space-y-1.5 pt-3 border-t border-[#262626]">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-[#A3A3A3] flex items-center gap-1">
-                  <Award className="w-3 h-3 text-[#E10600]" /> Kudos & Badges:
+                  <Award className="w-3 h-3 text-[#E10600]" /> Active Streak & Stats:
                 </span>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {badges.map((b, idx) => (

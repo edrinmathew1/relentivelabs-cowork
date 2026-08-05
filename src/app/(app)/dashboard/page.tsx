@@ -28,8 +28,11 @@ import {
   GitCommit,
   ExternalLink,
   Activity,
+  FileText,
+  Zap,
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
+import Link from 'next/link';
 
 export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -38,6 +41,9 @@ export default function DashboardPage() {
   const [checklists, setChecklists] = useState<DailyChecklist[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [commits, setCommits] = useState<GitHubCommit[]>([]);
+
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [reportSuccessMsg, setReportSuccessMsg] = useState<string | null>(null);
 
   const supabase = createClient();
 
@@ -83,9 +89,25 @@ export default function DashboardPage() {
     }
   };
 
+  const handleGenerateWeeklyReport = async () => {
+    setGeneratingReport(true);
+    setReportSuccessMsg(null);
+
+    try {
+      const res = await fetch('/api/reports/weekly', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Report generation failed');
+
+      setReportSuccessMsg('Weekly Executive Report generated & saved to Docs!');
+      setTimeout(() => setReportSuccessMsg(null), 5000);
+    } catch (err: any) {
+      console.error('Weekly report error:', err);
+    }
+    setGeneratingReport(false);
+  };
+
   const isAdmin = profile?.role === 'admin';
 
-  // Tasks per member bar chart data
   const memberTaskData = teamMembers.map((member) => {
     const completed = tasks.filter((t) => t.assignee_id === member.id && t.status === 'done').length;
     const commitCount = commits.filter((c) => c.author_email?.toLowerCase() === member.email.toLowerCase() || c.author_name?.toLowerCase().includes(member.full_name.split(' ')[0].toLowerCase())).length;
@@ -97,7 +119,6 @@ export default function DashboardPage() {
     };
   });
 
-  // 2. Real velocity trend over past 8 weeks computed dynamically
   const velocityData = Array.from({ length: 8 }).map((_, idx) => {
     const weekNum = 8 - idx;
     const endDate = new Date();
@@ -117,21 +138,31 @@ export default function DashboardPage() {
     };
   }).reverse();
 
-  // 3. Workload distribution per project
-  const projectDistribution = projects.map((p) => {
-    const count = tasks.filter((t) => t.project_id === p.id).length;
-    return {
-      name: p.name,
-      value: count > 0 ? count : 1,
-    };
-  });
-
-  const COLORS = ['#E10600', '#FF3B3B', '#7A0000', '#262626', '#E5E5E5'];
-
-  // 4. Dynamic Streak Leaderboard from actual checklists
+  // Unified Streak Leaderboard (Checklists + Tasks Completed)
   const leaderboardData = teamMembers.map((member) => {
-    const memberLists = checklists.filter((c) => c.user_id === member.id && c.is_complete);
-    const streak = memberLists.length;
+    const listDates = checklists.filter((c) => c.user_id === member.id && c.is_complete).map((c) => c.date);
+    const taskDates = tasks
+      .filter((t) => t.assignee_id === member.id && t.status === 'done' && t.updated_at)
+      .map((t) => t.updated_at.split('T')[0]);
+
+    const activeDates = new Set([...listDates, ...taskDates]);
+    let streak = 0;
+    let checkDate = new Date();
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    while (true) {
+      const dStr = checkDate.toISOString().split('T')[0];
+      if (activeDates.has(dStr)) {
+        streak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else {
+        if (dStr === todayStr) {
+          checkDate.setDate(checkDate.getDate() - 1);
+          continue;
+        }
+        break;
+      }
+    }
     return {
       id: member.id,
       name: member.full_name || member.email,
@@ -139,14 +170,13 @@ export default function DashboardPage() {
     };
   }).sort((a, b) => b.streak - a.streak);
 
-  // Global On-Time Completion Rate
   const totalDoneTasks = tasks.filter((t) => t.status === 'done').length;
   const personalTasks = tasks.filter((t) => t.assignee_id === profile?.id);
   const personalDoneTasks = personalTasks.filter((t) => t.status === 'done').length;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header & Weekly Report Generator Button */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
@@ -154,10 +184,29 @@ export default function DashboardPage() {
             {isAdmin ? 'Admin Agency Analytics & GitHub Activity Dashboard' : 'Member Performance Dashboard'}
           </h1>
           <p className="text-xs text-[#A3A3A3] mt-1">
-            Realtime team velocity, GitHub commit tracking & checklist leaderboards.
+            Realtime team velocity, GitHub commit tracking & unified streak leaderboards.
           </p>
         </div>
+
+        <button
+          onClick={handleGenerateWeeklyReport}
+          disabled={generatingReport}
+          className="bg-[#E10600] hover:bg-[#FF3B3B] text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#E10600]/20 transition self-start"
+        >
+          <Zap className="w-4 h-4" />
+          {generatingReport ? 'Generating Report...' : '⚡ Generate Weekly Report'}
+        </button>
       </div>
+
+      {reportSuccessMsg && (
+        <div className="p-3 bg-emerald-950/40 border border-emerald-500 text-emerald-300 rounded-xl text-xs flex items-center justify-between animate-bounce">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{reportSuccessMsg}</span>
+          </div>
+          <Link href="/docs" className="text-xs font-bold underline text-white">View in Docs →</Link>
+        </div>
+      )}
 
       {/* Top Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -260,11 +309,11 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Streak Leaderboard */}
+        {/* Unified Streak Leaderboard */}
         <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-4">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <Award className="w-4 h-4 text-[#E10600]" />
-            Checklist Streak Leaderboard
+            Unified Daily Streak Leaderboard
           </h3>
           <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
             {leaderboardData.map((item, idx) => (
@@ -279,48 +328,6 @@ export default function DashboardPage() {
                 </span>
               </div>
             ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Analytics Charts with Dark Styling */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Tasks Completed Per Member (Bar Chart) */}
-        <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <BarChart2 className="w-4 h-4 text-[#E10600]" />
-            Completed Tasks Per Team Member
-          </h3>
-          <div className="h-64 bg-[#0A0A0A] p-3 rounded-xl border border-[#262626]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={memberTaskData}>
-                <XAxis dataKey="name" stroke="#A3A3A3" fontSize={11} />
-                <YAxis stroke="#A3A3A3" fontSize={11} allowDecimals={false} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#141414', borderColor: '#262626', borderRadius: '8px', color: '#FFFFFF' }}
-                  itemStyle={{ color: '#FF3B3B' }}
-                />
-                <Bar dataKey="completed" fill="#E10600" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* 8-Week Velocity Line Chart */}
-        <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-[#E10600]" />
-            Team Velocity Trend (Past 8 Weeks)
-          </h3>
-          <div className="h-64 bg-[#0A0A0A] p-3 rounded-xl border border-[#262626]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={velocityData}>
-                <XAxis dataKey="week" stroke="#A3A3A3" fontSize={11} />
-                <YAxis stroke="#A3A3A3" fontSize={11} allowDecimals={false} />
-                <Tooltip contentStyle={{ backgroundColor: '#141414', borderColor: '#262626', borderRadius: '8px', color: '#FFFFFF' }} />
-                <Line type="monotone" dataKey="completed" stroke="#FF3B3B" strokeWidth={3} dot={{ fill: '#E10600' }} />
-              </LineChart>
-            </ResponsiveContainer>
           </div>
         </div>
       </div>

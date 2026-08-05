@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { DailyChecklist, ChecklistItem, Profile } from '@/types';
-import { CheckSquare, Flame, Calendar, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { DailyChecklist, ChecklistItem, Profile, Task } from '@/types';
+import { CheckSquare, Flame, Calendar, ArrowRight, CheckCircle2, Plus, Edit2, Trash2 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 export default function ChecklistPage() {
@@ -11,8 +11,17 @@ export default function ChecklistPage() {
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [carriedOverItems, setCarriedOverItems] = useState<ChecklistItem[]>([]);
   const [allChecklists, setAllChecklists] = useState<DailyChecklist[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [streakDays, setStreakDays] = useState(0);
   const [profile, setProfile] = useState<Profile | null>(null);
+
+  // Add Personal Item State
+  const [newPersonalLabel, setNewPersonalLabel] = useState('');
+
+  // Admin Template Edit Modal State
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [templateItems, setTemplateItems] = useState<string[]>([]);
+  const [newTemplateInput, setNewTemplateInput] = useState('');
 
   const supabase = createClient();
   const todayStr = new Date().toISOString().split('T')[0];
@@ -33,6 +42,10 @@ export default function ChecklistPage() {
         .single();
       if (profileData) setProfile(profileData as Profile);
 
+      // Load tasks for unified streak calculation
+      const { data: userTasks } = await supabase.from('tasks').select('*').eq('assignee_id', session.user.id);
+      if (userTasks) setTasks(userTasks as Task[]);
+
       // Load all checklists for user
       const { data: userLists } = await supabase
         .from('daily_checklists')
@@ -42,7 +55,7 @@ export default function ChecklistPage() {
 
       if (userLists) {
         setAllChecklists(userLists as DailyChecklist[]);
-        calculateStreak(userLists as DailyChecklist[]);
+        calculateUnifiedStreak(userLists as DailyChecklist[], (userTasks as Task[]) || []);
       }
 
       // Load today checklist
@@ -57,7 +70,7 @@ export default function ChecklistPage() {
         setChecklist(todayList as DailyChecklist);
         setItems(todayList.items as ChecklistItem[]);
       } else {
-        // Fallback default template
+        // Load default template items from DB or fallback
         const defaultItems: ChecklistItem[] = [
           { id: '1', label: 'Review assigned GitHub pull requests & issue queue', completed: false },
           { id: '2', label: 'Sync task status & estimated hours on project board', completed: false },
@@ -68,7 +81,6 @@ export default function ChecklistPage() {
         setItems(defaultItems);
       }
 
-      // Calculate carried over items from yesterday
       if (userLists) {
         calculateCarriedOver(userLists as DailyChecklist[]);
       }
@@ -77,18 +89,23 @@ export default function ChecklistPage() {
     }
   };
 
-  const calculateStreak = (lists: DailyChecklist[]) => {
-    let streak = 0;
-    const completedDates = new Set(lists.filter((l) => l.is_complete).map((l) => l.date));
+  const calculateUnifiedStreak = (lists: DailyChecklist[], userTasks: Task[]) => {
+    const listDates = lists.filter((l) => l.is_complete).map((l) => l.date);
+    const taskDates = userTasks
+      .filter((t) => t.status === 'done' && t.updated_at)
+      .map((t) => t.updated_at.split('T')[0]);
 
+    const activeDates = new Set([...listDates, ...taskDates]);
+
+    let streak = 0;
     let checkDate = new Date();
+
     while (true) {
       const dStr = checkDate.toISOString().split('T')[0];
-      if (completedDates.has(dStr)) {
+      if (activeDates.has(dStr)) {
         streak++;
         checkDate.setDate(checkDate.getDate() - 1);
       } else {
-        // If today is not complete yet, check if yesterday was complete
         if (dStr === todayStr) {
           checkDate.setDate(checkDate.getDate() - 1);
           continue;
@@ -116,16 +133,42 @@ export default function ChecklistPage() {
       item.id === itemId ? { ...item, completed: !item.completed } : item
     );
     setItems(updatedItems);
+    await saveChecklistToDb(updatedItems);
+  };
 
+  // Add Custom Personal Item
+  const handleAddPersonalItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPersonalLabel.trim()) return;
+
+    const newItem: ChecklistItem = {
+      id: `personal_${Date.now()}`,
+      label: `[Personal] ${newPersonalLabel.trim()}`,
+      completed: false,
+    };
+
+    const updatedItems = [...items, newItem];
+    setItems(updatedItems);
+    setNewPersonalLabel('');
+    await saveChecklistToDb(updatedItems);
+  };
+
+  const handleRemoveItem = async (itemId: string) => {
+    const updatedItems = items.filter((i) => i.id !== itemId);
+    setItems(updatedItems);
+    await saveChecklistToDb(updatedItems);
+  };
+
+  const saveChecklistToDb = async (updatedItems: ChecklistItem[]) => {
     const completedCount = updatedItems.filter((i) => i.completed).length;
     const totalCount = updatedItems.length;
-    const isComplete = completedCount === totalCount;
+    const isComplete = totalCount > 0 && completedCount === totalCount;
 
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
 
     try {
-      const { error } = await supabase.from('daily_checklists').upsert(
+      await supabase.from('daily_checklists').upsert(
         {
           user_id: session.user.id,
           date: todayStr,
@@ -136,12 +179,9 @@ export default function ChecklistPage() {
         },
         { onConflict: 'user_id,date' }
       );
-
-      if (!error) {
-        loadChecklistData();
-      }
+      loadChecklistData();
     } catch (err) {
-      console.error('Toggle checklist item error:', err);
+      console.error('Save checklist error:', err);
     }
   };
 
@@ -171,10 +211,10 @@ export default function ChecklistPage() {
         <div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
             <CheckSquare className="w-6 h-6 text-[#E10600]" />
-            Daily Engineering Standards
+            Daily Engineering Standards & Personal Checklist
           </h1>
           <p className="text-xs text-[#A3A3A3] mt-1">
-            Maintain daily operational excellence, build streak momentum & track progress.
+            Maintain daily operational excellence, personal tasks, streak momentum & track progress.
           </p>
         </div>
 
@@ -182,7 +222,7 @@ export default function ChecklistPage() {
         <div className="flex items-center gap-2 bg-[#141414] border border-[#262626] px-4 py-2 rounded-xl shadow-lg self-start">
           <Flame className="w-5 h-5 text-[#E10600] animate-bounce" />
           <div>
-            <span className="text-xs font-bold text-white block">Active Streak</span>
+            <span className="text-xs font-bold text-white block">Active Daily Streak</span>
             <span className="text-sm font-extrabold text-[#FF3B3B] font-mono">{streakDays} Days</span>
           </div>
         </div>
@@ -202,24 +242,54 @@ export default function ChecklistPage() {
             </span>
           </div>
 
+          {/* Add Custom Personal Item Form */}
+          <form onSubmit={handleAddPersonalItem} className="flex gap-2 p-2 bg-[#0A0A0A] border border-[#262626] rounded-xl">
+            <input
+              type="text"
+              value={newPersonalLabel}
+              onChange={(e) => setNewPersonalLabel(e.target.value)}
+              placeholder="+ Add a custom personal daily checklist item..."
+              className="flex-1 bg-transparent px-2 text-xs text-white outline-none placeholder-[#525252]"
+            />
+            <button
+              type="submit"
+              className="px-3 py-1.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg transition flex items-center gap-1 shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add Personal Item
+            </button>
+          </form>
+
+          {/* Items List */}
           <div className="space-y-2">
             {items.map((item) => (
-              <label
+              <div
                 key={item.id}
-                className={`flex items-center gap-3 p-3 rounded-lg border transition cursor-pointer ${
+                className={`flex items-center justify-between p-3 rounded-lg border transition ${
                   item.completed
                     ? 'bg-[#0A0A0A] border-[#262626] text-[#737373] line-through'
                     : 'bg-[#0A0A0A] border-[#262626] text-white hover:border-[#E10600]/50'
                 }`}
               >
-                <input
-                  type="checkbox"
-                  checked={Boolean(item.completed)}
-                  onChange={() => handleToggleItem(item.id)}
-                  className="w-4 h-4 accent-[#E10600] rounded cursor-pointer"
-                />
-                <span className="text-xs font-medium">{item.label}</span>
-              </label>
+                <label className="flex items-center gap-3 cursor-pointer flex-1">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(item.completed)}
+                    onChange={() => handleToggleItem(item.id)}
+                    className="w-4 h-4 accent-[#E10600] rounded cursor-pointer shrink-0"
+                  />
+                  <span className="text-xs font-medium">{item.label}</span>
+                </label>
+
+                {item.id.startsWith('personal_') && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveItem(item.id)}
+                    className="p-1 text-[#737373] hover:text-[#FF3B3B] rounded transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </div>
