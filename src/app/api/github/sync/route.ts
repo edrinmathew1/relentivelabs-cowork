@@ -41,7 +41,18 @@ export async function POST(req: Request) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('GitHub API error:', errorText);
+      console.error('GitHub API error:', response.status, errorText);
+
+      if (response.status === 409) {
+        // HTTP 409 Conflict means the repository is empty (has 0 commits pushed yet)
+        await supabase.from('github_repos').update({ last_synced_at: new Date().toISOString() }).eq('id', repo.id);
+        return NextResponse.json({
+          success: true,
+          syncedCount: 0,
+          message: `Connected ${repoName}! Repository is empty (0 commits pushed yet). Push your first commit to see code activity!`,
+        });
+      }
+
       if (response.status === 404) {
         return NextResponse.json(
           {
@@ -50,7 +61,7 @@ export async function POST(req: Request) {
           { status: 404 }
         );
       }
-      return NextResponse.json({ error: `GitHub API error: ${response.statusText}` }, { status: response.status });
+      return NextResponse.json({ error: `GitHub API error (${response.status}): ${response.statusText}` }, { status: response.status });
     }
 
     const commitsData = await response.json();
