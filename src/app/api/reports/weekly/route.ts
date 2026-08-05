@@ -5,7 +5,7 @@ export async function POST(req: Request) {
   try {
     const supabase = createAdminClient();
 
-    // Past 7 Days
+    // Strict 7-Day Calendar Week Window
     const now = new Date();
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(now.getDate() - 7);
@@ -13,17 +13,27 @@ export async function POST(req: Request) {
     const startDateStr = sevenDaysAgo.toISOString().split('T')[0];
     const endDateStr = now.toISOString().split('T')[0];
 
-    // Fetch Completed Tasks
-    const { data: tasks } = await supabase.from('tasks').select('*, project:projects(*), assignee:profiles!assignee_id(*)');
-    const completedTasks = (tasks || []).filter((t) => t.status === 'done');
+    // Fetch Tasks completed during this strict 7-day week
+    const { data: tasks } = await supabase
+      .from('tasks')
+      .select('*, project:projects(*), assignee:profiles!assignee_id(*)');
+
     const recentDoneTasks = (tasks || []).filter((t) => {
       if (t.status !== 'done' || !t.updated_at) return false;
-      return new Date(t.updated_at) >= sevenDaysAgo;
+      const updatedDate = new Date(t.updated_at);
+      return updatedDate >= sevenDaysAgo && updatedDate <= now;
     });
 
-    // Fetch GitHub Commits
-    let { data: commits } = await supabase.from('github_commits').select('*').order('committed_at', { ascending: false });
-    const recentCommits = (commits || []).filter((c) => new Date(c.committed_at) >= sevenDaysAgo);
+    // Fetch GitHub Commits pushed during this 7-day week
+    let { data: commits } = await supabase
+      .from('github_commits')
+      .select('*')
+      .order('committed_at', { ascending: false });
+
+    const recentCommits = (commits || []).filter((c) => {
+      const commitDate = new Date(c.committed_at);
+      return commitDate >= sevenDaysAgo && commitDate <= now;
+    });
 
     // Fetch Goals & Projects
     const { data: goals } = await supabase.from('goals').select('*');
@@ -33,33 +43,33 @@ export async function POST(req: Request) {
     const reportTitle = `Weekly Agency Executive Report (${startDateStr} to ${endDateStr})`;
 
     let markdown = `# ${reportTitle}\n\n`;
-    markdown += `**Generated**: ${new Date().toUTCString()}\n`;
-    markdown += `**Agency Target Period**: ${startDateStr} — ${endDateStr}\n\n`;
+    markdown += `**Report Period**: Strict 7-Day Cycle (${startDateStr} — ${endDateStr})\n`;
+    markdown += `**Generated At**: ${now.toUTCString()}\n\n`;
 
     markdown += `--- \n\n`;
-    markdown += `## 🚀 Executive Highlights & Key Metric Summary\n\n`;
-    markdown += `- **Tasks Completed This Week**: **${recentDoneTasks.length}** tasks shipped\n`;
-    markdown += `- **GitHub Code Commits**: **${recentCommits.length}** commits pushed across repositories\n`;
-    markdown += `- **Active Client Projects**: **${(projects || []).length}** active product tracks\n`;
-    markdown += `- **OKR Goals Tracked**: **${(goals || []).length}** company objectives\n\n`;
+    markdown += `## 🚀 7-Day Executive Metric Highlights\n\n`;
+    markdown += `- **Tasks Shipped This 7-Day Week**: **${recentDoneTasks.length}** completed tasks\n`;
+    markdown += `- **GitHub Code Commits**: **${recentCommits.length}** code commits pushed\n`;
+    markdown += `- **Active Client Projects**: **${(projects || []).length}** product tracks\n`;
+    markdown += `- **OKR Goals Tracked**: **${(goals || []).length}** objectives\n\n`;
 
     markdown += `--- \n\n`;
-    markdown += `## 🛠️ Tasks Shipped This Week\n\n`;
+    markdown += `## 🛠️ Tasks Completed in Past 7 Days\n\n`;
     if (recentDoneTasks.length === 0) {
-      markdown += `*No tasks marked done in the past 7 days.*\n\n`;
+      markdown += `*No tasks marked done during this 7-day week.*\n\n`;
     } else {
       recentDoneTasks.forEach((t) => {
-        markdown += `- **${t.title}** (${t.project?.name || 'General'}) — Assigned to **${t.assignee?.full_name || 'Unassigned'}**\n`;
+        markdown += `- **${t.title}** (${t.project?.name || 'General'}) — Completed by **${t.assignee?.full_name || 'Team Member'}**\n`;
       });
       markdown += `\n`;
     }
 
     markdown += `--- \n\n`;
-    markdown += `## 🐙 GitHub Code Activity Feed (Past 7 Days)\n\n`;
+    markdown += `## 🐙 Code Activity (Past 7 Days)\n\n`;
     if (recentCommits.length === 0) {
-      markdown += `*No code commits logged during this 7-day period.*\n\n`;
+      markdown += `*No code commits logged during this 7-day week.*\n\n`;
     } else {
-      recentCommits.slice(0, 15).forEach((c) => {
+      recentCommits.slice(0, 20).forEach((c) => {
         markdown += `- \`${c.commit_sha.substring(0, 7)}\`: **${c.message}** — by *${c.author_name || 'Developer'}*\n`;
       });
       markdown += `\n`;
@@ -71,13 +81,13 @@ export async function POST(req: Request) {
       markdown += `*No company OKR goals created yet.*\n\n`;
     } else {
       goals.forEach((g) => {
-        markdown += `- **${g.title}**: Current Progress: **${g.progress}%** (${g.current_value}/${g.target_value}) — Status: \`${g.status}\`\n`;
+        markdown += `- **${g.title}**: Progress: **${g.progress}%** (${g.current_value}/${g.target_value}) — Status: \`${g.status}\`\n`;
       });
       markdown += `\n`;
     }
 
-    // Insert Report Into Docs Table
-    const { data: newDoc, error } = await supabase
+    // Save Generated Weekly Report Document to Docs Table
+    const { data: newDoc } = await supabase
       .from('docs')
       .insert({
         title: reportTitle,
@@ -92,7 +102,7 @@ export async function POST(req: Request) {
       reportTitle,
       markdown,
       docId: newDoc?.id,
-      message: 'Weekly Executive Report generated and saved into Docs!',
+      message: `Weekly 7-Day Executive Report (${startDateStr} - ${endDateStr}) generated & saved into Docs!`,
     });
   } catch (err: any) {
     console.error('Weekly report error:', err);
