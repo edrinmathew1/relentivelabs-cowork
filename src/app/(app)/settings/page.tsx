@@ -4,10 +4,30 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Profile, Project, GitHubRepo } from '@/types';
 import { useTheme } from '@/components/providers/theme-provider';
-import { Settings as SettingsIcon, User, Image, Save, CheckCircle2, Upload, AlertCircle, Sun, Moon, GitBranch, RefreshCw, Trash2, Link as LinkIcon } from 'lucide-react';
+import {
+  Settings as SettingsIcon,
+  User,
+  Image,
+  Save,
+  CheckCircle2,
+  Upload,
+  AlertCircle,
+  Sun,
+  Moon,
+  GitBranch,
+  RefreshCw,
+  Trash2,
+  Link as LinkIcon,
+  Bell,
+  Palette,
+  Shield,
+  Laptop,
+} from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 export default function SettingsPage() {
+  const [activeTab, setActiveTab] = useState<'account' | 'theme' | 'github' | 'notifications'>('account');
+
   const [profile, setProfile] = useState<Profile | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [connectedRepos, setConnectedRepos] = useState<GitHubRepo[]>([]);
@@ -23,6 +43,11 @@ export default function SettingsPage() {
   const [githubToken, setGithubToken] = useState('');
   const [connectingRepo, setConnectingRepo] = useState(false);
   const [syncingRepoId, setSyncingRepoId] = useState<string | null>(null);
+
+  // Notification Preferences State
+  const [dailyReminders, setDailyReminders] = useState(true);
+  const [mentionAlerts, setMentionAlerts] = useState(true);
+  const [eodSummaries, setEodSummaries] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -92,7 +117,6 @@ export default function SettingsPage() {
       if (error) throw new Error(error.message);
 
       if (newRepo) {
-        // Trigger initial backfill sync
         await fetch('/api/github/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -141,7 +165,6 @@ export default function SettingsPage() {
     await supabase.from('github_repos').delete().eq('id', repoId);
   };
 
-  // Direct Local PC File Upload Handler
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -227,15 +250,15 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-5xl">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
           <SettingsIcon className="w-6 h-6 text-[#E10600]" />
-          Account & Workspace Settings
+          Workspace Settings Panel
         </h1>
         <p className="text-xs text-[#A3A3A3] mt-1">
-          Manage your GitHub integrations, theme, personal identity & preferences.
+          Organized settings control panel for account identity, GitHub integrations, theme & notifications.
         </p>
       </div>
 
@@ -260,258 +283,377 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* GitHub Repository Integration Section */}
-      <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl space-y-4">
-        <div className="flex items-center justify-between border-b border-[#262626] pb-3">
-          <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <GitBranch className="w-4 h-4 text-[#E10600]" />
-              GitHub Repository Sync & Commit Tracking
-            </h3>
-            <p className="text-xs text-[#A3A3A3] mt-0.5">
-              Connect your GitHub repository to auto-link commit SHAs & pull requests directly to project tasks.
-            </p>
-          </div>
+      {/* Main Structured Settings Layout */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-start">
+        {/* Settings Navigation Sidebar */}
+        <div className="bg-[#141414] border border-[#262626] rounded-xl p-2 shadow-xl space-y-1">
+          <button
+            onClick={() => setActiveTab('account')}
+            className={`w-full p-2.5 rounded-lg text-xs font-bold flex items-center gap-2.5 transition ${
+              activeTab === 'account'
+                ? 'bg-[#E10600] text-white shadow-md'
+                : 'text-[#A3A3A3] hover:text-white hover:bg-[#0A0A0A]'
+            }`}
+          >
+            <User className="w-4 h-4" /> Account & Profile
+          </button>
+
+          <button
+            onClick={() => setActiveTab('theme')}
+            className={`w-full p-2.5 rounded-lg text-xs font-bold flex items-center gap-2.5 transition ${
+              activeTab === 'theme'
+                ? 'bg-[#E10600] text-white shadow-md'
+                : 'text-[#A3A3A3] hover:text-white hover:bg-[#0A0A0A]'
+            }`}
+          >
+            <Palette className="w-4 h-4" /> Theme & Appearance
+          </button>
+
+          <button
+            onClick={() => setActiveTab('github')}
+            className={`w-full p-2.5 rounded-lg text-xs font-bold flex items-center gap-2.5 transition ${
+              activeTab === 'github'
+                ? 'bg-[#E10600] text-white shadow-md'
+                : 'text-[#A3A3A3] hover:text-white hover:bg-[#0A0A0A]'
+            }`}
+          >
+            <GitBranch className="w-4 h-4" /> GitHub & Integrations
+          </button>
+
+          <button
+            onClick={() => setActiveTab('notifications')}
+            className={`w-full p-2.5 rounded-lg text-xs font-bold flex items-center gap-2.5 transition ${
+              activeTab === 'notifications'
+                ? 'bg-[#E10600] text-white shadow-md'
+                : 'text-[#A3A3A3] hover:text-white hover:bg-[#0A0A0A]'
+            }`}
+          >
+            <Bell className="w-4 h-4" /> Notifications
+          </button>
         </div>
 
-        {/* Connected Repositories List */}
-        {connectedRepos.length > 0 && (
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-white uppercase tracking-wider">Connected Repositories</h4>
-            <div className="divide-y divide-[#262626] border border-[#262626] rounded-xl overflow-hidden bg-[#0A0A0A]">
-              {connectedRepos.map((repo) => (
-                <div key={repo.id} className="p-3.5 flex items-center justify-between gap-3 text-xs">
-                  <div className="space-y-0.5">
-                    <span className="font-mono font-bold text-[#E10600] flex items-center gap-1.5">
-                      <GitBranch className="w-3.5 h-3.5 text-white" /> {repo.repo_name}
-                    </span>
-                    <p className="text-[10px] text-[#A3A3A3]">
-                      Project: <strong>{repo.project?.name || 'General'}</strong> | Last Synced: {repo.last_synced_at ? formatDate(repo.last_synced_at) : 'Never'}
-                    </p>
-                  </div>
+        {/* Tab 1: Account Profile Settings */}
+        {activeTab === 'account' && (
+          <form onSubmit={handleSaveSettings} className="md:col-span-3 bg-[#141414] border border-[#262626] rounded-xl p-6 shadow-2xl space-y-6">
+            <div className="border-b border-[#262626] pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <User className="w-4 h-4 text-[#E10600]" /> Account Profile & Identity
+              </h3>
+              <p className="text-xs text-[#A3A3A3]">Manage your name, job title, timezone, and profile picture avatar.</p>
+            </div>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleSyncNow(repo.id)}
-                      disabled={syncingRepoId === repo.id}
-                      className="px-3 py-1 bg-[#141414] hover:bg-[#262626] border border-[#262626] text-white text-xs font-semibold rounded-lg transition flex items-center gap-1"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 text-[#E10600] ${syncingRepoId === repo.id ? 'animate-spin' : ''}`} />
-                      {syncingRepoId === repo.id ? 'Syncing...' : 'Sync Commits Now'}
-                    </button>
-                    <button
-                      onClick={() => handleDeleteRepo(repo.id)}
-                      title="Disconnect Repo"
-                      className="p-1 text-[#737373] hover:text-[#FF3B3B] hover:bg-[#262626] rounded transition"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+            {/* Avatar Preview & Direct PC Upload */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-5 p-4 bg-[#0A0A0A] border border-[#262626] rounded-xl">
+              <div className="w-20 h-20 rounded-full bg-[#1A1A1A] border-2 border-[#E10600] flex items-center justify-center text-white text-xl font-bold shrink-0 overflow-hidden shadow-lg">
+                {avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={avatarUrl} alt={fullName || 'Profile Avatar'} className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-10 h-10 text-[#737373]" />
+                )}
+              </div>
+
+              <div className="space-y-2 flex-1">
+                <div>
+                  <h3 className="text-sm font-bold text-white">{fullName || 'Your Name'}</h3>
+                  <p className="text-xs text-[#A3A3A3]">{profile?.email}</p>
                 </div>
-              ))}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="px-3 py-1.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg cursor-pointer transition flex items-center gap-1.5 shadow-md shadow-[#E10600]/20">
+                    <Upload className="w-3.5 h-3.5" />
+                    {uploading ? 'Uploading...' : 'Upload Image from PC'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {avatarUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setAvatarUrl('')}
+                      className="px-3 py-1.5 bg-[#262626] hover:bg-[#333333] text-[#A3A3A3] hover:text-white text-xs font-semibold rounded-lg transition"
+                    >
+                      Remove Picture
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Form Inputs */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full bg-[#0A0A0A] border border-[#262626] focus:border-[#E10600] rounded-lg p-2.5 text-xs text-white outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Job Title</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Fullstack Engineer / Product Manager"
+                  className="w-full bg-[#0A0A0A] border border-[#262626] focus:border-[#E10600] rounded-lg p-2.5 text-xs text-white outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1 flex items-center gap-1">
+                  <Image className="w-3 h-3 text-[#E10600]" /> Or Paste Image Web URL
+                </label>
+                <input
+                  type="url"
+                  value={avatarUrl}
+                  onChange={(e) => setAvatarUrl(e.target.value)}
+                  placeholder="https://images.unsplash.com/... or your image link"
+                  className="w-full bg-[#0A0A0A] border border-[#262626] focus:border-[#E10600] rounded-lg p-2.5 text-xs text-white outline-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Timezone</label>
+                <select
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  className="w-full bg-[#0A0A0A] border border-[#262626] text-white rounded-lg p-2.5 text-xs outline-none"
+                >
+                  <option value="Asia/Kolkata">Asia/Kolkata (IST +5:30)</option>
+                  <option value="America/New_York">America/New_York (EST)</option>
+                  <option value="Europe/London">Europe/London (GMT/BST)</option>
+                  <option value="UTC">UTC</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || uploading}
+              className="px-5 py-2.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg shadow-lg shadow-[#E10600]/20 flex items-center gap-2 transition"
+            >
+              <Save className="w-4 h-4" /> {loading ? 'Saving Changes...' : 'Save Profile Settings'}
+            </button>
+          </form>
+        )}
+
+        {/* Tab 2: Theme & Appearance */}
+        {activeTab === 'theme' && (
+          <div className="md:col-span-3 bg-[#141414] border border-[#262626] rounded-xl p-6 shadow-2xl space-y-5">
+            <div className="border-b border-[#262626] pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Palette className="w-4 h-4 text-[#E10600]" /> Workspace Color Theme
+              </h3>
+              <p className="text-xs text-[#A3A3A3]">Switch between sleek Dark Mode and White & Red Light Mode.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => setTheme('dark')}
+                className={`p-5 rounded-xl border text-left space-y-2 transition ${
+                  theme === 'dark'
+                    ? 'bg-[#0A0A0A] border-[#E10600] shadow-xl shadow-[#E10600]/10'
+                    : 'bg-[#0A0A0A] border-[#262626] hover:border-[#737373]'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <Moon className="w-5 h-5 text-[#E10600]" />
+                  {theme === 'dark' && <span className="text-[10px] font-bold text-[#E10600] bg-[#E10600]/10 px-2 py-0.5 rounded">Active</span>}
+                </div>
+                <h4 className="text-xs font-bold text-white">Dark Mode (Default)</h4>
+                <p className="text-[11px] text-[#A3A3A3]">Deep #0A0A0A background with crisp dark cards and red accents.</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTheme('light')}
+                className={`p-5 rounded-xl border text-left space-y-2 transition ${
+                  theme === 'light'
+                    ? 'bg-white border-[#E10600] shadow-xl shadow-[#E10600]/10 text-slate-900'
+                    : 'bg-[#0A0A0A] border-[#262626] hover:border-[#737373]'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <Sun className="w-5 h-5 text-[#E10600]" />
+                  {theme === 'light' && <span className="text-[10px] font-bold text-[#E10600] bg-[#E10600]/10 px-2 py-0.5 rounded">Active</span>}
+                </div>
+                <h4 className="text-xs font-bold text-white">Light Mode (White & Red)</h4>
+                <p className="text-[11px] text-[#A3A3A3]">Clean white & light grey theme with signature red accents.</p>
+              </button>
             </div>
           </div>
         )}
 
-        {/* Connect New Repository Form */}
-        <form onSubmit={handleConnectGitHubRepo} className="p-4 bg-[#0A0A0A] border border-[#262626] rounded-xl space-y-3">
-          <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-            <LinkIcon className="w-3.5 h-3.5 text-[#E10600]" /> Connect New GitHub Repository
-          </h4>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-semibold text-[#A3A3A3] mb-1">Target Project</label>
-              <select
-                required
-                value={selectedProjectId}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
-                className="w-full bg-[#141414] border border-[#262626] text-white rounded-lg p-2 text-xs outline-none"
-              >
-                <option value="">Select Project...</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
+        {/* Tab 3: GitHub & Integrations */}
+        {activeTab === 'github' && (
+          <div className="md:col-span-3 bg-[#141414] border border-[#262626] rounded-xl p-6 shadow-2xl space-y-5">
+            <div className="border-b border-[#262626] pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <GitBranch className="w-4 h-4 text-[#E10600]" /> GitHub Repository Integrations
+              </h3>
+              <p className="text-xs text-[#A3A3A3]">Connect GitHub repos, auto-sync commit SHAs, and manage webhooks.</p>
             </div>
 
-            <div>
-              <label className="block text-[11px] font-semibold text-[#A3A3A3] mb-1">Repository Name (org/repo)</label>
-              <input
-                type="text"
-                required
-                value={repoName}
-                onChange={(e) => setRepoName(e.target.value)}
-                placeholder="edrinmathew1/relentivelabs-cowork"
-                className="w-full bg-[#141414] border border-[#262626] focus:border-[#E10600] rounded-lg p-2 text-xs text-white outline-none font-mono"
-              />
-            </div>
-          </div>
+            {/* Connected Repositories List */}
+            {connectedRepos.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Connected Repositories</h4>
+                <div className="divide-y divide-[#262626] border border-[#262626] rounded-xl overflow-hidden bg-[#0A0A0A]">
+                  {connectedRepos.map((repo) => (
+                    <div key={repo.id} className="p-3.5 flex items-center justify-between gap-3 text-xs">
+                      <div className="space-y-0.5">
+                        <span className="font-mono font-bold text-[#E10600] flex items-center gap-1.5">
+                          <GitBranch className="w-3.5 h-3.5 text-white" /> {repo.repo_name}
+                        </span>
+                        <p className="text-[10px] text-[#A3A3A3]">
+                          Project: <strong>{repo.project?.name || 'General'}</strong> | Last Synced: {repo.last_synced_at ? formatDate(repo.last_synced_at) : 'Never'}
+                        </p>
+                      </div>
 
-          <div>
-            <label className="block text-[11px] font-semibold text-[#A3A3A3] mb-1">GitHub Personal Access Token (repo read scope)</label>
-            <input
-              type="password"
-              required
-              value={githubToken}
-              onChange={(e) => setGithubToken(e.target.value)}
-              placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-              className="w-full bg-[#141414] border border-[#262626] focus:border-[#E10600] rounded-lg p-2 text-xs text-white outline-none font-mono"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={connectingRepo}
-            className="px-4 py-2 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg shadow-md shadow-[#E10600]/20 flex items-center gap-1.5 transition"
-          >
-            <GitBranch className="w-4 h-4" /> {connectingRepo ? 'Connecting & Syncing...' : 'Connect GitHub Repo & Backfill'}
-          </button>
-        </form>
-      </div>
-
-      {/* Theme Preference Switcher Box */}
-      <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          <Sun className="w-4 h-4 text-[#E10600]" />
-          Workspace Color Theme
-        </h3>
-        <p className="text-xs text-[#A3A3A3]">
-          Choose between Dark Mode (Default) and Light Mode (White & Red theme).
-        </p>
-
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            type="button"
-            onClick={() => setTheme('dark')}
-            className={`flex-1 p-3 rounded-xl border font-bold text-xs flex items-center justify-center gap-2 transition ${
-              theme === 'dark'
-                ? 'bg-[#0A0A0A] border-[#E10600] text-white shadow-md shadow-[#E10600]/20'
-                : 'bg-[#0A0A0A] border-[#262626] text-[#A3A3A3] hover:text-white'
-            }`}
-          >
-            <Moon className="w-4 h-4 text-[#E10600]" />
-            Dark Mode (Default)
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setTheme('light')}
-            className={`flex-1 p-3 rounded-xl border font-bold text-xs flex items-center justify-center gap-2 transition ${
-              theme === 'light'
-                ? 'bg-white border-[#E10600] text-slate-900 shadow-md shadow-[#E10600]/20'
-                : 'bg-[#0A0A0A] border-[#262626] text-[#A3A3A3] hover:text-white'
-            }`}
-          >
-            <Sun className="w-4 h-4 text-[#E10600]" />
-            Light Mode (White & Red)
-          </button>
-        </div>
-      </div>
-
-      <form onSubmit={handleSaveSettings} className="bg-[#141414] border border-[#262626] rounded-xl p-6 shadow-2xl space-y-6">
-        {/* Avatar Preview & Direct PC Upload */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-5 p-4 bg-[#0A0A0A] border border-[#262626] rounded-xl">
-          <div className="w-20 h-20 rounded-full bg-[#1A1A1A] border-2 border-[#E10600] flex items-center justify-center text-white text-xl font-bold shrink-0 overflow-hidden shadow-lg">
-            {avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={avatarUrl} alt={fullName || 'Profile Avatar'} className="w-full h-full object-cover" />
-            ) : (
-              <User className="w-10 h-10 text-[#737373]" />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleSyncNow(repo.id)}
+                          disabled={syncingRepoId === repo.id}
+                          className="px-3 py-1 bg-[#141414] hover:bg-[#262626] border border-[#262626] text-white text-xs font-semibold rounded-lg transition flex items-center gap-1"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 text-[#E10600] ${syncingRepoId === repo.id ? 'animate-spin' : ''}`} />
+                          {syncingRepoId === repo.id ? 'Syncing...' : 'Sync Commits Now'}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteRepo(repo.id)}
+                          title="Disconnect Repo"
+                          className="p-1 text-[#737373] hover:text-[#FF3B3B] hover:bg-[#262626] rounded transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
-          </div>
 
-          <div className="space-y-2 flex-1">
-            <div>
-              <h3 className="text-sm font-bold text-white">{fullName || 'Your Name'}</h3>
-              <p className="text-xs text-[#A3A3A3]">{profile?.email}</p>
+            {/* Connect New Repository Form */}
+            <form onSubmit={handleConnectGitHubRepo} className="p-4 bg-[#0A0A0A] border border-[#262626] rounded-xl space-y-3">
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <LinkIcon className="w-3.5 h-3.5 text-[#E10600]" /> Connect New GitHub Repository
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#A3A3A3] mb-1">Target Project</label>
+                  <select
+                    required
+                    value={selectedProjectId}
+                    onChange={(e) => setSelectedProjectId(e.target.value)}
+                    className="w-full bg-[#141414] border border-[#262626] text-white rounded-lg p-2 text-xs outline-none"
+                  >
+                    <option value="">Select Project...</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#A3A3A3] mb-1">Repository Name (org/repo)</label>
+                  <input
+                    type="text"
+                    required
+                    value={repoName}
+                    onChange={(e) => setRepoName(e.target.value)}
+                    placeholder="edrinmathew1/relentivelabs-cowork"
+                    className="w-full bg-[#141414] border border-[#262626] focus:border-[#E10600] rounded-lg p-2 text-xs text-white outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-[#A3A3A3] mb-1">GitHub Personal Access Token (repo read scope)</label>
+                <input
+                  type="password"
+                  required
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                  className="w-full bg-[#141414] border border-[#262626] focus:border-[#E10600] rounded-lg p-2 text-xs text-white outline-none font-mono"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={connectingRepo}
+                className="px-4 py-2 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg shadow-md shadow-[#E10600]/20 flex items-center gap-1.5 transition"
+              >
+                <GitBranch className="w-4 h-4" /> {connectingRepo ? 'Connecting & Syncing...' : 'Connect GitHub Repo & Backfill'}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* Tab 4: Notifications & Preferences */}
+        {activeTab === 'notifications' && (
+          <div className="md:col-span-3 bg-[#141414] border border-[#262626] rounded-xl p-6 shadow-2xl space-y-5">
+            <div className="border-b border-[#262626] pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Bell className="w-4 h-4 text-[#E10600]" /> Notifications & Email Preferences
+              </h3>
+              <p className="text-xs text-[#A3A3A3]">Customize your daily reminders, @mention alerts, and EOD digests.</p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="px-3 py-1.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg cursor-pointer transition flex items-center gap-1.5 shadow-md shadow-[#E10600]/20">
-                <Upload className="w-3.5 h-3.5" />
-                {uploading ? 'Uploading...' : 'Upload Image from PC'}
+            <div className="space-y-3">
+              <label className="flex items-center justify-between p-3.5 bg-[#0A0A0A] border border-[#262626] rounded-xl cursor-pointer">
+                <div>
+                  <h4 className="text-xs font-bold text-white">Daily Standup Reminders</h4>
+                  <p className="text-[11px] text-[#A3A3A3]">Receive automated morning standup reminders at 9:00 AM.</p>
+                </div>
                 <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileUpload}
-                  className="hidden"
+                  type="checkbox"
+                  checked={dailyReminders}
+                  onChange={() => setDailyReminders(!dailyReminders)}
+                  className="w-4 h-4 accent-[#E10600] rounded"
                 />
               </label>
 
-              {avatarUrl && (
-                <button
-                  type="button"
-                  onClick={() => setAvatarUrl('')}
-                  className="px-3 py-1.5 bg-[#262626] hover:bg-[#333333] text-[#A3A3A3] hover:text-white text-xs font-semibold rounded-lg transition"
-                >
-                  Remove Picture
-                </button>
-              )}
+              <label className="flex items-center justify-between p-3.5 bg-[#0A0A0A] border border-[#262626] rounded-xl cursor-pointer">
+                <div>
+                  <h4 className="text-xs font-bold text-white">@Mention & Comment Alerts</h4>
+                  <p className="text-[11px] text-[#A3A3A3]">Get instant alerts when teammates mention you in task comments.</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={mentionAlerts}
+                  onChange={() => setMentionAlerts(!mentionAlerts)}
+                  className="w-4 h-4 accent-[#E10600] rounded"
+                />
+              </label>
+
+              <label className="flex items-center justify-between p-3.5 bg-[#0A0A0A] border border-[#262626] rounded-xl cursor-pointer">
+                <div>
+                  <h4 className="text-xs font-bold text-white">End of Day Work Log Summaries</h4>
+                  <p className="text-[11px] text-[#A3A3A3]">Receive automated EOD reminder to submit your work log.</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={eodSummaries}
+                  onChange={() => setEodSummaries(!eodSummaries)}
+                  className="w-4 h-4 accent-[#E10600] rounded"
+                />
+              </label>
             </div>
           </div>
-        </div>
-
-        {/* Form Inputs */}
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Full Name</label>
-            <input
-              type="text"
-              required
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              className="w-full bg-[#0A0A0A] border border-[#262626] focus:border-[#E10600] rounded-lg p-2.5 text-xs text-white outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Job Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Fullstack Engineer / Product Manager"
-              className="w-full bg-[#0A0A0A] border border-[#262626] focus:border-[#E10600] rounded-lg p-2.5 text-xs text-white outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1 flex items-center gap-1">
-              <Image className="w-3 h-3 text-[#E10600]" /> Or Paste Image Web URL
-            </label>
-            <input
-              type="url"
-              value={avatarUrl}
-              onChange={(e) => setAvatarUrl(e.target.value)}
-              placeholder="https://images.unsplash.com/... or your image link"
-              className="w-full bg-[#0A0A0A] border border-[#262626] focus:border-[#E10600] rounded-lg p-2.5 text-xs text-white outline-none font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-[#A3A3A3] uppercase mb-1">Timezone</label>
-            <select
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              className="w-full bg-[#0A0A0A] border border-[#262626] text-white rounded-lg p-2.5 text-xs outline-none"
-            >
-              <option value="Asia/Kolkata">Asia/Kolkata (IST +5:30)</option>
-              <option value="America/New_York">America/New_York (EST)</option>
-              <option value="Europe/London">Europe/London (GMT/BST)</option>
-              <option value="UTC">UTC</option>
-            </select>
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading || uploading}
-          className="px-5 py-2.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg shadow-lg shadow-[#E10600]/20 flex items-center gap-2 transition"
-        >
-          <Save className="w-4 h-4" /> {loading ? 'Saving Changes...' : 'Save Profile Settings'}
-        </button>
-      </form>
+        )}
+      </div>
     </div>
   );
 }
