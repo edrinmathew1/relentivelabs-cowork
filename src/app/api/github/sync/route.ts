@@ -20,8 +20,15 @@ export async function POST(req: Request) {
     }
 
     const repo = repos[0];
-    const repoName = repo.repo_name.trim(); // e.g. "edrinmathew1/relentivelabs-cowork"
+    const repoName = repo.repo_name.trim(); // e.g. "edrinmathew1/relentive-edtech"
     const token = repo.github_token.trim();
+
+    if (!repoName.includes('/')) {
+      return NextResponse.json(
+        { error: `Invalid repo format "${repoName}". Must be "owner/repository" (e.g. edrinmathew1/${repoName})` },
+        { status: 400 }
+      );
+    }
 
     // Fetch commits from GitHub REST API
     const response = await fetch(`https://api.github.com/repos/${repoName}/commits?per_page=50`, {
@@ -35,6 +42,14 @@ export async function POST(req: Request) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('GitHub API error:', errorText);
+      if (response.status === 404) {
+        return NextResponse.json(
+          {
+            error: `GitHub returned 404 Not Found for "${repoName}". Make sure the repository name is in "owner/repo" format (e.g. edrinmathew1/relentive-edtech) AND your token has access to this repo!`,
+          },
+          { status: 404 }
+        );
+      }
       return NextResponse.json({ error: `GitHub API error: ${response.statusText}` }, { status: response.status });
     }
 
@@ -54,11 +69,9 @@ export async function POST(req: Request) {
       const commitUrl = item.html_url || `https://github.com/${repoName}/commit/${sha}`;
       const committedAt = item.commit?.author?.date || new Date().toISOString();
 
-      // Find matching task reference
       let matchedTaskId: string | null = null;
 
       if (allTasks) {
-        // Match #task-id or [TASK-id] or matching UUID
         for (const task of allTasks) {
           const shortId = task.id.split('-')[0];
           if (
@@ -72,7 +85,6 @@ export async function POST(req: Request) {
         }
       }
 
-      // Upsert commit into database
       const { error: insertErr } = await supabase.from('github_commits').upsert(
         {
           repo_id: repo.id,
@@ -90,8 +102,6 @@ export async function POST(req: Request) {
 
       if (!insertErr) {
         syncedCount++;
-
-        // Log task activity if linked
         if (matchedTaskId) {
           await supabase.from('task_activity_log').insert({
             task_id: matchedTaskId,
@@ -102,7 +112,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // Update last_synced_at timestamp
     await supabase.from('github_repos').update({ last_synced_at: new Date().toISOString() }).eq('id', repo.id);
 
     return NextResponse.json({
