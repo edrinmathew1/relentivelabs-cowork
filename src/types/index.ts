@@ -192,3 +192,30 @@ export interface Doc {
   created_at: string;
   updated_at: string;
 }
+
+export interface GitHubRepo {
+  id: string;
+  project_id: string;
+  project?: Project;
+  repo_name: string;
+  github_token: string;
+  webhook_secret?: string;
+  last_synced_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GitHubCommit {
+  id: string;
+  repo_id: string;
+  commit_sha: string;
+  message: string;
+  author_name?: string;
+  author_email?: string;
+  author_avatar_url?: string;
+  commit_url?: string;
+  linked_task_id?: string;
+  linked_task?: Task;
+  committed_at: string;
+  created_at: string;
+}

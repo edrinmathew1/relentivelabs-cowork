@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Task, Profile, TaskComment, TaskActivityLog, TaskPriority, TaskStatus } from '@/types';
+import { Task, Profile, TaskComment, TaskActivityLog, TaskPriority, TaskStatus, GitHubCommit } from '@/types';
 import { TiptapEditor } from '@/components/ui/tiptap-editor';
-import { X, Calendar, User, Clock, Tag, MessageSquare, History, CheckCircle2, AlertTriangle, Send } from 'lucide-react';
+import { X, Calendar, User, Clock, Tag, MessageSquare, History, CheckCircle2, AlertTriangle, Send, GitCommit, ExternalLink } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 interface TaskModalProps {
@@ -36,8 +36,9 @@ export function TaskModal({
 
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [activityLogs, setActivityLogs] = useState<TaskActivityLog[]>([]);
+  const [linkedCommits, setLinkedCommits] = useState<GitHubCommit[]>([]);
   const [newComment, setNewComment] = useState('');
-  const [activeTab, setActiveTab] = useState<'comments' | 'activity'>('comments');
+  const [activeTab, setActiveTab] = useState<'comments' | 'commits' | 'activity'>('comments');
   const [saving, setSaving] = useState(false);
 
   const supabase = createClient();
@@ -74,6 +75,17 @@ export function TaskModal({
       .order('created_at', { ascending: false });
 
     if (activityData) setActivityLogs(activityData as any);
+
+    let { data: commitData, error: commitErr } = await supabase
+      .from('github_commits')
+      .select('*')
+      .eq('linked_task_id', taskId)
+      .order('committed_at', { ascending: false });
+
+    if (commitErr) {
+      console.warn('Task commits query warning:', commitErr.message);
+    }
+    if (commitData) setLinkedCommits(commitData as any);
   };
 
   if (!isOpen || !task) return null;
@@ -82,7 +94,6 @@ export function TaskModal({
     setSaving(true);
     const tags = tagsStr.split(',').map((t) => t.trim()).filter(Boolean);
 
-    // Track status/assignee changes for activity log
     const statusChanged = task.status !== status;
     const assigneeChanged = task.assignee_id !== assigneeId;
 
@@ -118,7 +129,6 @@ export function TaskModal({
           meta: { assignee_id: assigneeId },
         });
 
-        // Trigger notification if assigned
         if (assigneeId) {
           await supabase.from('notifications').insert({
             user_id: assigneeId,
@@ -144,7 +154,6 @@ export function TaskModal({
     e.preventDefault();
     if (!newComment.trim() || !currentUserId) return;
 
-    // Detect @mentions (e.g. @Alex)
     const mentionRegex = /@(\w+)/g;
     const matches = Array.from(newComment.matchAll(mentionRegex));
     const mentionedNames = matches.map((m) => m[1].toLowerCase());
@@ -153,7 +162,7 @@ export function TaskModal({
       .filter((m) => mentionedNames.some((name) => m.full_name.toLowerCase().includes(name)))
       .map((m) => m.id);
 
-    const { data: insertedComment, error } = await supabase
+    const { data: insertedComment } = await supabase
       .from('task_comments')
       .insert({
         task_id: task.id,
@@ -168,7 +177,6 @@ export function TaskModal({
       setComments((prev) => [...prev, insertedComment as any]);
       setNewComment('');
 
-      // Send notifications to mentioned users
       for (const userId of mentionedUserIds) {
         await supabase.from('notifications').insert({
           user_id: userId,
@@ -234,7 +242,7 @@ export function TaskModal({
               />
             </div>
 
-            {/* Comments & Activity Tab Container */}
+            {/* Comments, GitHub Commits & Activity Tab Container */}
             <div className="border border-[#262626] rounded-xl bg-[#0A0A0A] overflow-hidden">
               <div className="flex border-b border-[#262626] bg-[#141414]">
                 <button
@@ -246,6 +254,16 @@ export function TaskModal({
                   }`}
                 >
                   <MessageSquare className="w-3.5 h-3.5" /> Comments ({comments.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('commits')}
+                  className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-2 border-b-2 transition ${
+                    activeTab === 'commits'
+                      ? 'border-[#E10600] text-white bg-[#0A0A0A]'
+                      : 'border-transparent text-[#737373] hover:text-[#A3A3A3]'
+                  }`}
+                >
+                  <GitCommit className="w-3.5 h-3.5 text-[#E10600]" /> Commits ({linkedCommits.length})
                 </button>
                 <button
                   onClick={() => setActiveTab('activity')}
@@ -260,7 +278,7 @@ export function TaskModal({
               </div>
 
               <div className="p-4">
-                {activeTab === 'comments' ? (
+                {activeTab === 'comments' && (
                   <div className="space-y-4">
                     <div className="max-h-60 overflow-y-auto space-y-3 pr-1">
                       {comments.length === 0 ? (
@@ -285,7 +303,6 @@ export function TaskModal({
                       )}
                     </div>
 
-                    {/* New Comment Input */}
                     <form onSubmit={handleAddComment} className="flex gap-2 pt-2 border-t border-[#262626]">
                       <input
                         type="text"
@@ -302,7 +319,45 @@ export function TaskModal({
                       </button>
                     </form>
                   </div>
-                ) : (
+                )}
+
+                {activeTab === 'commits' && (
+                  <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                    {linkedCommits.length === 0 ? (
+                      <p className="text-xs text-[#737373] text-center py-4">
+                        No GitHub commits linked to this task yet. Include <code className="text-[#E10600]">#{task.id.split('-')[0]}</code> in your git commit message!
+                      </p>
+                    ) : (
+                      linkedCommits.map((commit) => (
+                        <div key={commit.id} className="p-3 bg-[#141414] border border-[#262626] rounded-lg text-xs space-y-1 flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-[#E10600] font-bold">
+                                {commit.commit_sha.substring(0, 7)}
+                              </span>
+                              <span className="font-semibold text-white">{commit.message}</span>
+                            </div>
+                            <p className="text-[10px] text-[#A3A3A3]">
+                              By {commit.author_name} ({commit.author_email}) on {formatDate(commit.committed_at)}
+                            </p>
+                          </div>
+                          {commit.commit_url && (
+                            <a
+                              href={commit.commit_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[#E10600] hover:text-[#FF3B3B] p-1 rounded hover:bg-[#262626]"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'activity' && (
                   <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
                     {activityLogs.length === 0 ? (
                       <p className="text-xs text-[#737373] text-center py-4">No activity logged yet.</p>

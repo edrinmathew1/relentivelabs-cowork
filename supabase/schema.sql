@@ -249,6 +249,37 @@ CREATE TABLE IF NOT EXISTS public.docs (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- --------------------------------------------------------
+-- 15. GITHUB_REPOS
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.github_repos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+  repo_name TEXT NOT NULL,
+  github_token TEXT NOT NULL,
+  webhook_secret TEXT,
+  last_synced_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- --------------------------------------------------------
+-- 16. GITHUB_COMMITS
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.github_commits (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  repo_id UUID REFERENCES public.github_repos(id) ON DELETE CASCADE,
+  commit_sha TEXT UNIQUE NOT NULL,
+  message TEXT NOT NULL,
+  author_name TEXT,
+  author_email TEXT,
+  author_avatar_url TEXT,
+  commit_url TEXT,
+  linked_task_id UUID REFERENCES public.tasks(id) ON DELETE SET NULL,
+  committed_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ========================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- ========================================================
@@ -267,6 +298,8 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invites ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.docs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.github_repos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.github_commits ENABLE ROW LEVEL SECURITY;
 
 -- Profiles Policies
 DROP POLICY IF EXISTS "Profiles viewable by authenticated users" ON public.profiles;
@@ -374,6 +407,16 @@ DROP POLICY IF EXISTS "Docs access" ON public.docs;
 CREATE POLICY "Docs access" ON public.docs
   FOR ALL USING (auth.role() = 'authenticated');
 
+-- GitHub Repos Policies
+DROP POLICY IF EXISTS "GitHub Repos access" ON public.github_repos;
+CREATE POLICY "GitHub Repos access" ON public.github_repos
+  FOR ALL USING (auth.role() = 'authenticated');
+
+-- GitHub Commits Policies
+DROP POLICY IF EXISTS "GitHub Commits access" ON public.github_commits;
+CREATE POLICY "GitHub Commits access" ON public.github_commits
+  FOR ALL USING (auth.role() = 'authenticated');
+
 -- Safely add tables to Realtime publication without duplicate error
 DO $$
 BEGIN
@@ -399,6 +442,14 @@ BEGIN
       AND prrelid = 'public.events'::regclass
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.events;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_rel
+    WHERE prpubid = (SELECT oid FROM pg_publication WHERE pubname = 'supabase_realtime')
+      AND prrelid = 'public.github_commits'::regclass
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.github_commits;
   END IF;
 EXCEPTION
   WHEN OTHERS THEN NULL;

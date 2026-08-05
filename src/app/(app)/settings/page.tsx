@@ -2,44 +2,143 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Profile } from '@/types';
+import { Profile, Project, GitHubRepo } from '@/types';
 import { useTheme } from '@/components/providers/theme-provider';
-import { Settings as SettingsIcon, User, Image, Save, CheckCircle2, Upload, AlertCircle, Sun, Moon } from 'lucide-react';
+import { Settings as SettingsIcon, User, Image, Save, CheckCircle2, Upload, AlertCircle, Sun, Moon, GitBranch, RefreshCw, Trash2, Link as LinkIcon } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
 
 export default function SettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [connectedRepos, setConnectedRepos] = useState<GitHubRepo[]>([]);
+
   const [fullName, setFullName] = useState('');
   const [title, setTitle] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [timezone, setTimezone] = useState('Asia/Kolkata');
+
+  // GitHub Integration Form State
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [repoName, setRepoName] = useState('');
+  const [githubToken, setGithubToken] = useState('');
+  const [connectingRepo, setConnectingRepo] = useState(false);
+  const [syncingRepoId, setSyncingRepoId] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const { theme, setTheme } = useTheme();
   const supabase = createClient();
 
   useEffect(() => {
-    fetchProfile();
+    fetchProfileAndIntegrations();
   }, []);
 
-  const fetchProfile = async () => {
+  const fetchProfileAndIntegrations = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-      if (data) {
-        setProfile(data as Profile);
-        setFullName(data.full_name || '');
-        setTitle(data.title || '');
-        setAvatarUrl(data.avatar_url || '');
-        setTimezone(data.timezone || 'Asia/Kolkata');
+      const { data: prof } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+      if (prof) {
+        setProfile(prof as Profile);
+        setFullName(prof.full_name || '');
+        setTitle(prof.title || '');
+        setAvatarUrl(prof.avatar_url || '');
+        setTimezone(prof.timezone || 'Asia/Kolkata');
       }
+
+      const { data: projData } = await supabase.from('projects').select('*');
+      if (projData) setProjects(projData as Project[]);
+
+      let { data: repoData, error: repoErr } = await supabase
+        .from('github_repos')
+        .select('*, project:projects(*)');
+
+      if (repoErr) {
+        console.warn('GitHub repos query warning:', repoErr.message);
+      }
+      if (repoData) setConnectedRepos(repoData as any);
     } catch (err) {
-      console.error('Fetch profile error:', err);
+      console.error('Fetch profile/integrations error:', err);
     }
+  };
+
+  const handleConnectGitHubRepo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProjectId || !repoName || !githubToken) {
+      setErrorMsg('Please select a project, enter repo name and access token.');
+      return;
+    }
+
+    setConnectingRepo(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    try {
+      const { data: newRepo, error } = await supabase
+        .from('github_repos')
+        .insert({
+          project_id: selectedProjectId,
+          repo_name: repoName.trim(),
+          github_token: githubToken.trim(),
+        })
+        .select('*')
+        .single();
+
+      if (error) throw new Error(error.message);
+
+      if (newRepo) {
+        // Trigger initial backfill sync
+        await fetch('/api/github/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo_id: newRepo.id }),
+        });
+
+        setSuccessMsg(`Successfully connected ${repoName} & backfilled commits!`);
+        setRepoName('');
+        setGithubToken('');
+        fetchProfileAndIntegrations();
+      }
+    } catch (err: any) {
+      console.error('Connect repo error:', err);
+      setErrorMsg(err.message || 'Failed to connect repository.');
+    }
+    setConnectingRepo(false);
+  };
+
+  const handleSyncNow = async (repoId: string) => {
+    setSyncingRepoId(repoId);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    try {
+      const res = await fetch('/api/github/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo_id: repoId }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Sync failed');
+
+      setSuccessMsg(data.message || 'Commits synced cleanly!');
+      fetchProfileAndIntegrations();
+    } catch (err: any) {
+      console.error('Sync error:', err);
+      setErrorMsg(err.message || 'Sync failed');
+    }
+    setSyncingRepoId(null);
+  };
+
+  const handleDeleteRepo = async (repoId: string) => {
+    if (!confirm('Are you sure you want to disconnect this repository?')) return;
+    setConnectedRepos((prev) => prev.filter((r) => r.id !== repoId));
+    await supabase.from('github_repos').delete().eq('id', repoId);
   };
 
   // Direct Local PC File Upload Handler
@@ -136,7 +235,7 @@ export default function SettingsPage() {
           Account & Workspace Settings
         </h1>
         <p className="text-xs text-[#A3A3A3] mt-1">
-          Manage your theme, personal agency identity, profile picture & preferences.
+          Manage your GitHub integrations, theme, personal identity & preferences.
         </p>
       </div>
 
@@ -147,12 +246,129 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {successMsg && (
+        <div className="p-3 bg-emerald-950/40 border border-emerald-500 text-emerald-300 rounded-xl text-xs flex items-center gap-2 animate-bounce">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
       {errorMsg && (
         <div className="p-3 bg-[#7A0000]/30 border border-[#E10600] text-red-200 rounded-xl text-xs flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-[#E10600] shrink-0" />
           <span>{errorMsg}</span>
         </div>
       )}
+
+      {/* GitHub Repository Integration Section */}
+      <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between border-b border-[#262626] pb-3">
+          <div>
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-[#E10600]" />
+              GitHub Repository Sync & Commit Tracking
+            </h3>
+            <p className="text-xs text-[#A3A3A3] mt-0.5">
+              Connect your GitHub repository to auto-link commit SHAs & pull requests directly to project tasks.
+            </p>
+          </div>
+        </div>
+
+        {/* Connected Repositories List */}
+        {connectedRepos.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold text-white uppercase tracking-wider">Connected Repositories</h4>
+            <div className="divide-y divide-[#262626] border border-[#262626] rounded-xl overflow-hidden bg-[#0A0A0A]">
+              {connectedRepos.map((repo) => (
+                <div key={repo.id} className="p-3.5 flex items-center justify-between gap-3 text-xs">
+                  <div className="space-y-0.5">
+                    <span className="font-mono font-bold text-[#E10600] flex items-center gap-1.5">
+                      <GitBranch className="w-3.5 h-3.5 text-white" /> {repo.repo_name}
+                    </span>
+                    <p className="text-[10px] text-[#A3A3A3]">
+                      Project: <strong>{repo.project?.name || 'General'}</strong> | Last Synced: {repo.last_synced_at ? formatDate(repo.last_synced_at) : 'Never'}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleSyncNow(repo.id)}
+                      disabled={syncingRepoId === repo.id}
+                      className="px-3 py-1 bg-[#141414] hover:bg-[#262626] border border-[#262626] text-white text-xs font-semibold rounded-lg transition flex items-center gap-1"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 text-[#E10600] ${syncingRepoId === repo.id ? 'animate-spin' : ''}`} />
+                      {syncingRepoId === repo.id ? 'Syncing...' : 'Sync Commits Now'}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteRepo(repo.id)}
+                      title="Disconnect Repo"
+                      className="p-1 text-[#737373] hover:text-[#FF3B3B] hover:bg-[#262626] rounded transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Connect New Repository Form */}
+        <form onSubmit={handleConnectGitHubRepo} className="p-4 bg-[#0A0A0A] border border-[#262626] rounded-xl space-y-3">
+          <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+            <LinkIcon className="w-3.5 h-3.5 text-[#E10600]" /> Connect New GitHub Repository
+          </h4>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-[#A3A3A3] mb-1">Target Project</label>
+              <select
+                required
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                className="w-full bg-[#141414] border border-[#262626] text-white rounded-lg p-2 text-xs outline-none"
+              >
+                <option value="">Select Project...</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-[#A3A3A3] mb-1">Repository Name (org/repo)</label>
+              <input
+                type="text"
+                required
+                value={repoName}
+                onChange={(e) => setRepoName(e.target.value)}
+                placeholder="edrinmathew1/relentivelabs-cowork"
+                className="w-full bg-[#141414] border border-[#262626] focus:border-[#E10600] rounded-lg p-2 text-xs text-white outline-none font-mono"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-[#A3A3A3] mb-1">GitHub Personal Access Token (repo read scope)</label>
+            <input
+              type="password"
+              required
+              value={githubToken}
+              onChange={(e) => setGithubToken(e.target.value)}
+              placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+              className="w-full bg-[#141414] border border-[#262626] focus:border-[#E10600] rounded-lg p-2 text-xs text-white outline-none font-mono"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={connectingRepo}
+            className="px-4 py-2 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg shadow-md shadow-[#E10600]/20 flex items-center gap-1.5 transition"
+          >
+            <GitBranch className="w-4 h-4" /> {connectingRepo ? 'Connecting & Syncing...' : 'Connect GitHub Repo & Backfill'}
+          </button>
+        </form>
+      </div>
 
       {/* Theme Preference Switcher Box */}
       <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">

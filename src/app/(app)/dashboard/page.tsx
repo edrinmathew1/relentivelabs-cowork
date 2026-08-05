@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Profile, Task, DailyChecklist, Project } from '@/types';
+import { Profile, Task, DailyChecklist, Project, GitHubCommit } from '@/types';
 import {
   BarChart,
   Bar,
@@ -25,7 +25,11 @@ import {
   Award,
   BarChart2,
   Users,
+  GitCommit,
+  ExternalLink,
+  Activity,
 } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
 
 export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -33,6 +37,7 @@ export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [checklists, setChecklists] = useState<DailyChecklist[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [commits, setCommits] = useState<GitHubCommit[]>([]);
 
   const supabase = createClient();
 
@@ -64,6 +69,15 @@ export default function DashboardPage() {
 
       const { data: projectsData } = await supabase.from('projects').select('*');
       if (projectsData) setProjects(projectsData as any);
+
+      let { data: commitData, error: commitErr } = await supabase
+        .from('github_commits')
+        .select('*')
+        .order('committed_at', { ascending: false })
+        .limit(20);
+
+      if (commitErr) console.warn('Commits query warning:', commitErr.message);
+      if (commitData) setCommits(commitData as any);
     } catch (err) {
       console.error('Fetch dashboard error:', err);
     }
@@ -71,12 +85,15 @@ export default function DashboardPage() {
 
   const isAdmin = profile?.role === 'admin';
 
-  // 1. Tasks per member bar chart data
+  // Tasks per member bar chart data
   const memberTaskData = teamMembers.map((member) => {
     const completed = tasks.filter((t) => t.assignee_id === member.id && t.status === 'done').length;
+    const commitCount = commits.filter((c) => c.author_email?.toLowerCase() === member.email.toLowerCase() || c.author_name?.toLowerCase().includes(member.full_name.split(' ')[0].toLowerCase())).length;
+
     return {
       name: member.full_name?.split(' ')[0] || member.email.split('@')[0],
       completed,
+      commits: commitCount,
     };
   });
 
@@ -122,24 +139,10 @@ export default function DashboardPage() {
     };
   }).sort((a, b) => b.streak - a.streak);
 
-  // 5. Dynamic Personal Member Stats
-  const personalTasks = tasks.filter((t) => t.assignee_id === profile?.id);
-  const personalDoneTasks = personalTasks.filter((t) => t.status === 'done').length;
-  const personalOnTimeTasks = personalTasks.filter((t) => {
-    if (t.status !== 'done') return false;
-    if (!t.due_date || !t.updated_at) return true;
-    return new Date(t.updated_at) <= new Date(t.due_date);
-  }).length;
-  const personalOnTimeRate = personalDoneTasks > 0 ? Math.round((personalOnTimeTasks / personalDoneTasks) * 100) : 100;
-
   // Global On-Time Completion Rate
   const totalDoneTasks = tasks.filter((t) => t.status === 'done').length;
-  const globalOnTimeTasks = tasks.filter((t) => {
-    if (t.status !== 'done') return false;
-    if (!t.due_date || !t.updated_at) return true;
-    return new Date(t.updated_at) <= new Date(t.due_date);
-  }).length;
-  const globalOnTimeRate = totalDoneTasks > 0 ? Math.round((globalOnTimeTasks / totalDoneTasks) * 100) : 100;
+  const personalTasks = tasks.filter((t) => t.assignee_id === profile?.id);
+  const personalDoneTasks = personalTasks.filter((t) => t.status === 'done').length;
 
   return (
     <div className="space-y-6">
@@ -148,10 +151,10 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
             <LayoutDashboard className="w-6 h-6 text-[#E10600]" />
-            {isAdmin ? 'Admin Agency Analytics Dashboard' : 'Member Performance Dashboard'}
+            {isAdmin ? 'Admin Agency Analytics & GitHub Activity Dashboard' : 'Member Performance Dashboard'}
           </h1>
           <p className="text-xs text-[#A3A3A3] mt-1">
-            Realtime team velocity, task completion rate & checklist leaderboards.
+            Realtime team velocity, GitHub commit tracking & checklist leaderboards.
           </p>
         </div>
       </div>
@@ -171,13 +174,11 @@ export default function DashboardPage() {
 
         <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl shadow-lg space-y-1">
           <div className="flex items-center justify-between text-xs text-[#A3A3A3]">
-            <span>On-Time Completion</span>
-            <Clock className="w-4 h-4 text-[#FF3B3B]" />
+            <span>GitHub Commits Synced</span>
+            <GitCommit className="w-4 h-4 text-[#E10600]" />
           </div>
-          <div className="text-2xl font-extrabold text-white">
-            {isAdmin ? `${globalOnTimeRate}%` : `${personalOnTimeRate}%`}
-          </div>
-          <span className="text-[10px] text-[#A3A3A3]">Calculated from task due dates</span>
+          <div className="text-2xl font-extrabold text-[#FF3B3B]">{commits.length}</div>
+          <span className="text-[10px] text-[#A3A3A3]">From connected GitHub repos</span>
         </div>
 
         <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl shadow-lg space-y-1">
@@ -186,7 +187,7 @@ export default function DashboardPage() {
             <Users className="w-4 h-4 text-[#E10600]" />
           </div>
           <div className="text-2xl font-extrabold text-white">{teamMembers.length}</div>
-          <span className="text-[10px] text-[#A3A3A3]">Active accounts</span>
+          <span className="text-[10px] text-[#A3A3A3]">Active agency accounts</span>
         </div>
 
         <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl shadow-lg space-y-1">
@@ -196,6 +197,89 @@ export default function DashboardPage() {
           </div>
           <div className="text-2xl font-extrabold text-[#FF3B3B]">{projects.length}</div>
           <span className="text-[10px] text-[#A3A3A3]">Active client & internal tracks</span>
+        </div>
+      </div>
+
+      {/* Main Combined Feed & Charts Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Recent Chronological GitHub Code & Task Activity Feed */}
+        <div className="lg:col-span-2 bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl space-y-4">
+          <div className="flex items-center justify-between border-b border-[#262626] pb-3">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Activity className="w-4 h-4 text-[#E10600]" />
+                Recent Code Activity & GitHub Commit Stream
+              </h3>
+              <p className="text-xs text-[#A3A3A3] mt-0.5">
+                Real-time chronological feed of GitHub code commits linked with task updates.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+            {commits.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[#737373] bg-[#0A0A0A] rounded-xl border border-[#262626]">
+                No GitHub commits synced yet. Connect your repository under Settings!
+              </div>
+            ) : (
+              commits.map((c) => (
+                <div key={c.id} className="p-3.5 bg-[#0A0A0A] border border-[#262626] rounded-xl flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-[#141414] border border-[#E10600] flex items-center justify-center shrink-0 overflow-hidden">
+                      {c.author_avatar_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={c.author_avatar_url} alt={c.author_name || 'Author'} className="w-full h-full object-cover" />
+                      ) : (
+                        <GitCommit className="w-4 h-4 text-[#E10600]" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[#E10600] font-bold">{c.commit_sha.substring(0, 7)}</span>
+                        <span className="font-bold text-white line-clamp-1">{c.message}</span>
+                      </div>
+                      <p className="text-[10px] text-[#A3A3A3]">
+                        By <strong>{c.author_name || 'Developer'}</strong> • {formatDate(c.committed_at)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {c.commit_url && (
+                    <a
+                      href={c.commit_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-1.5 text-[#A3A3A3] hover:text-[#E10600] hover:bg-[#141414] rounded transition shrink-0"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Streak Leaderboard */}
+        <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-4">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <Award className="w-4 h-4 text-[#E10600]" />
+            Checklist Streak Leaderboard
+          </h3>
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            {leaderboardData.map((item, idx) => (
+              <div key={item.id} className="p-3 bg-[#0A0A0A] border border-[#262626] rounded-lg flex items-center justify-between text-xs">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono font-bold text-[#E10600]">#{idx + 1}</span>
+                  <span className="font-semibold text-white">{item.name}</span>
+                </div>
+                <span className="font-bold text-[#FF3B3B] flex items-center gap-1">
+                  <Flame className="w-3.5 h-3.5 text-[#E10600]" />
+                  {item.streak} Days
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -237,45 +321,6 @@ export default function DashboardPage() {
                 <Line type="monotone" dataKey="completed" stroke="#FF3B3B" strokeWidth={3} dot={{ fill: '#E10600' }} />
               </LineChart>
             </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Workload Distribution Pie Chart */}
-        <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
-          <h3 className="text-sm font-bold text-white">Workload Distribution Across Projects</h3>
-          <div className="h-56 bg-[#0A0A0A] p-3 rounded-xl border border-[#262626]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={projectDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label>
-                  {projectDistribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={{ backgroundColor: '#141414', borderColor: '#262626', borderRadius: '8px', color: '#FFFFFF' }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Streak Leaderboard */}
-        <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <Award className="w-4 h-4 text-[#E10600]" />
-            Checklist Streak Leaderboard
-          </h3>
-          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-            {leaderboardData.map((item, idx) => (
-              <div key={item.id} className="p-3 bg-[#0A0A0A] border border-[#262626] rounded-lg flex items-center justify-between text-xs">
-                <div className="flex items-center gap-3">
-                  <span className="font-mono font-bold text-[#E10600]">#{idx + 1}</span>
-                  <span className="font-semibold text-white">{item.name}</span>
-                </div>
-                <span className="font-bold text-[#FF3B3B] flex items-center gap-1">
-                  <Flame className="w-3.5 h-3.5 text-[#E10600]" />
-                  {item.streak} Days
-                </span>
-              </div>
-            ))}
           </div>
         </div>
       </div>

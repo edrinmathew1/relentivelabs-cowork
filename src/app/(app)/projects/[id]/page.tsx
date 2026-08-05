@@ -3,10 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Project, Task, Profile, TaskStatus, ProjectStatus } from '@/types';
+import { Project, Task, Profile, TaskStatus, ProjectStatus, GitHubCommit, GitHubRepo } from '@/types';
 import { KanbanBoard } from '@/components/tasks/kanban-board';
 import { TaskModal } from '@/components/tasks/task-modal';
-import { Calendar, Users, Plus, ArrowLeft, FolderKanban, CheckCircle2, UserCheck, Shield, LayoutGrid, List } from 'lucide-react';
+import { Calendar, Users, Plus, ArrowLeft, FolderKanban, CheckCircle2, UserCheck, Shield, LayoutGrid, List, GitBranch, GitCommit, ExternalLink, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { formatDate } from '@/lib/utils';
 
@@ -17,13 +17,17 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [teamMembers, setTeamMembers] = useState<Profile[]>([]);
+  const [commits, setCommits] = useState<GitHubCommit[]>([]);
+  const [connectedRepo, setConnectedRepo] = useState<GitHubRepo | null>(null);
+
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [syncingCommits, setSyncingCommits] = useState(false);
 
   // Active Tab View State inside Project
-  const [activeTab, setActiveTab] = useState<'board' | 'available' | 'workload'>('board');
+  const [activeTab, setActiveTab] = useState<'board' | 'available' | 'workload' | 'commits'>('board');
 
   const supabase = createClient();
 
@@ -73,13 +77,40 @@ export default function ProjectDetailPage() {
 
       const { data: teamData } = await supabase.from('profiles').select('*').eq('status', 'active');
       if (teamData) setTeamMembers(teamData as any);
+
+      // Fetch GitHub Repo & Commits for this project
+      let { data: repoData } = await supabase.from('github_repos').select('*').eq('project_id', projectId).maybeSingle();
+      if (repoData) {
+        setConnectedRepo(repoData as any);
+        let { data: commitData } = await supabase
+          .from('github_commits')
+          .select('*')
+          .eq('repo_id', repoData.id)
+          .order('committed_at', { ascending: false });
+        if (commitData) setCommits(commitData as any);
+      }
     } catch (err) {
       console.error('Fetch project detail error:', err);
     }
     setLoading(false);
   };
 
-  // Header Attribute Change Handlers
+  const handleSyncProjectCommits = async () => {
+    if (!connectedRepo) return;
+    setSyncingCommits(true);
+    try {
+      await fetch('/api/github/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo_id: connectedRepo.id }),
+      });
+      await fetchProjectAndTasks();
+    } catch (err) {
+      console.error('Sync project commits error:', err);
+    }
+    setSyncingCommits(false);
+  };
+
   const handleUpdateProjectStatus = async (newStatus: ProjectStatus) => {
     if (!project) return;
     setProject({ ...project, status: newStatus });
@@ -119,14 +150,14 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const handleCreateTask = async (status: TaskStatus = 'todo', titleOverride?: string) => {
+  const handleCreateTask = async (status: TaskStatus = 'todo') => {
     if (!projectId) return;
     try {
       const { data: newTask } = await supabase
         .from('tasks')
         .insert({
           project_id: projectId,
-          title: titleOverride || 'New Project Task',
+          title: 'New Project Task',
           status,
           created_by: currentUserId,
           priority: 'medium',
@@ -144,7 +175,6 @@ export default function ProjectDetailPage() {
     }
   };
 
-  // 1-Click Task Claiming Handler
   const handleClaimTask = async (taskId: string) => {
     if (!currentUserId) return;
     const me = teamMembers.find((m) => m.id === currentUserId);
@@ -205,7 +235,6 @@ export default function ProjectDetailPage() {
 
       {/* Interactive Clickable Project Header Banner */}
       <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl flex flex-wrap items-center justify-between gap-4 text-xs text-[#A3A3A3]">
-        {/* Status Dropdown */}
         <div className="flex items-center gap-2">
           <span className="font-semibold text-white">Status:</span>
           <select
@@ -220,7 +249,6 @@ export default function ProjectDetailPage() {
           </select>
         </div>
 
-        {/* Target Date Picker */}
         <div className="flex items-center gap-2">
           <Calendar className="w-3.5 h-3.5 text-[#E10600]" />
           <span>Target Date:</span>
@@ -232,7 +260,6 @@ export default function ProjectDetailPage() {
           />
         </div>
 
-        {/* Owner Selector */}
         <div className="flex items-center gap-2">
           <Users className="w-3.5 h-3.5 text-[#E10600]" />
           <span>Owner:</span>
@@ -250,7 +277,7 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Project View Tabs Header */}
-      <div className="flex items-center p-1 bg-[#141414] border border-[#262626] rounded-xl text-xs w-fit">
+      <div className="flex items-center p-1 bg-[#141414] border border-[#262626] rounded-xl text-xs w-fit flex-wrap gap-1">
         <button
           onClick={() => setActiveTab('board')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition ${
@@ -275,7 +302,16 @@ export default function ProjectDetailPage() {
             activeTab === 'workload' ? 'bg-[#E10600] text-white shadow-md' : 'text-[#A3A3A3] hover:text-white'
           }`}
         >
-          <Users className="w-4 h-4" /> Team Workload Distribution
+          <Users className="w-4 h-4" /> Workload Distribution
+        </button>
+
+        <button
+          onClick={() => setActiveTab('commits')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition ${
+            activeTab === 'commits' ? 'bg-[#E10600] text-white shadow-md' : 'text-[#A3A3A3] hover:text-white'
+          }`}
+        >
+          <GitBranch className="w-4 h-4" /> GitHub Code Commits ({commits.length})
         </button>
       </div>
 
@@ -293,7 +329,7 @@ export default function ProjectDetailPage() {
         />
       )}
 
-      {/* Tab 2: Available Tasks Pool & Claim Hub */}
+      {/* Tab 2: Available Tasks Pool */}
       {activeTab === 'available' && (
         <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl space-y-4">
           <div className="flex items-center justify-between border-b border-[#262626] pb-3">
@@ -337,7 +373,6 @@ export default function ProjectDetailPage() {
                   </div>
 
                   <div className="flex items-center gap-3 shrink-0">
-                    {/* Assignee Selector */}
                     <select
                       value={t.assignee_id || ''}
                       onChange={(e) => handleAssignTask(t.id, e.target.value)}
@@ -349,7 +384,6 @@ export default function ProjectDetailPage() {
                       ))}
                     </select>
 
-                    {/* 1-Click Claim Task Button */}
                     {t.assignee_id !== currentUserId && t.status !== 'done' && (
                       <button
                         onClick={() => handleClaimTask(t.id)}
@@ -366,7 +400,7 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Tab 3: Team Workload Distribution */}
+      {/* Tab 3: Workload Distribution */}
       {activeTab === 'workload' && (
         <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl space-y-4">
           <div className="border-b border-[#262626] pb-3">
@@ -408,6 +442,70 @@ export default function ProjectDetailPage() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 4: GitHub Code Commits Feed */}
+      {activeTab === 'commits' && (
+        <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl space-y-4">
+          <div className="flex items-center justify-between border-b border-[#262626] pb-3">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <GitBranch className="w-4 h-4 text-[#E10600]" />
+                Project GitHub Code Commits
+              </h3>
+              <p className="text-xs text-[#A3A3A3] mt-0.5">
+                {connectedRepo ? `Tracking commits from ${connectedRepo.repo_name}` : 'No GitHub repository connected yet.'}
+              </p>
+            </div>
+
+            {connectedRepo && (
+              <button
+                onClick={handleSyncProjectCommits}
+                disabled={syncingCommits}
+                className="px-3 py-1.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncingCommits ? 'animate-spin' : ''}`} />
+                {syncingCommits ? 'Syncing...' : 'Sync Commits Now'}
+              </button>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            {commits.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[#737373] bg-[#0A0A0A] border border-[#262626] rounded-xl">
+                No commits found. Connect your repo under Settings or click &quot;Sync Commits Now&quot;!
+              </div>
+            ) : (
+              commits.map((c) => (
+                <div key={c.id} className="p-3.5 bg-[#0A0A0A] border border-[#262626] rounded-xl flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-3">
+                    <GitCommit className="w-4 h-4 text-[#E10600] shrink-0" />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[#E10600] font-bold">{c.commit_sha.substring(0, 7)}</span>
+                        <span className="font-bold text-white">{c.message}</span>
+                      </div>
+                      <p className="text-[10px] text-[#A3A3A3]">
+                        By {c.author_name || 'Developer'} • {formatDate(c.committed_at)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {c.commit_url && (
+                    <a
+                      href={c.commit_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-1.5 text-[#A3A3A3] hover:text-[#E10600] hover:bg-[#141414] rounded transition shrink-0"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
