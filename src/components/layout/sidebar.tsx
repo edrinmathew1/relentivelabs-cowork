@@ -15,6 +15,7 @@ import {
   Settings,
   LogOut,
   FileText,
+  GitBranch,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Projects', href: '/projects', icon: FolderKanban },
   { label: 'Tasks Board', href: '/tasks', icon: CheckSquare2 },
+  { label: 'Codebase Hub', href: '/codebase', icon: GitBranch },
   { label: 'Calendar OS', href: '/calendar', icon: Calendar },
   { label: 'Daily Checklist', href: '/checklist', icon: CheckSquare },
   { label: 'Goals & OKRs', href: '/goals', icon: Target },

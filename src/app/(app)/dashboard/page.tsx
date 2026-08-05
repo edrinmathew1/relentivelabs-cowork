@@ -208,7 +208,7 @@ export default function DashboardPage() {
           {isAdmin ? 'Admin Agency Analytics & Performance Dashboard' : 'Member Productivity Dashboard'}
         </h1>
         <p className="text-xs text-[#A3A3A3] mt-1">
-          Realtime velocity metrics, productivity graphs, GitHub codebase activity & streak leaderboards.
+          Realtime velocity metrics, productivity graphs, codebase activity links & streak leaderboards.
         </p>
       </div>
 
@@ -235,14 +235,17 @@ export default function DashboardPage() {
           <span className="text-[10px] text-emerald-400">Realtime synced</span>
         </div>
 
-        <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl shadow-lg space-y-1">
+        <Link href="/codebase" className="p-4 bg-[#141414] border border-[#262626] hover:border-[#E10600] rounded-xl shadow-lg space-y-1 transition group">
           <div className="flex items-center justify-between text-xs text-[#A3A3A3]">
             <span>GitHub Commits Synced</span>
-            <GitCommit className="w-4 h-4 text-[#E10600]" />
+            <GitCommit className="w-4 h-4 text-[#E10600] group-hover:scale-110 transition" />
           </div>
-          <div className="text-2xl font-extrabold text-[#FF3B3B]">{commits.length}</div>
+          <div className="text-2xl font-extrabold text-[#FF3B3B] flex items-center justify-between">
+            <span>{commits.length}</span>
+            <span className="text-[10px] text-[#E10600] font-normal">View Codebase Hub →</span>
+          </div>
           <span className="text-[10px] text-[#A3A3A3]">From connected GitHub repos</span>
-        </div>
+        </Link>
 
         <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl shadow-lg space-y-1">
           <div className="flex items-center justify-between text-xs text-[#A3A3A3]">
@@ -373,78 +376,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* SECTION 2: DEDICATED CODEBASE & GITHUB COMMITS SECTION */}
-      <div className="space-y-4">
-        <h2 className="text-base font-extrabold text-white tracking-tight flex items-center gap-2 border-b border-[#262626] pb-2">
-          <GitBranch className="w-5 h-5 text-[#E10600]" />
-          Codebase & GitHub Activity Stream
-        </h2>
-
-        <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl space-y-4">
-          <div className="flex items-center justify-between border-b border-[#262626] pb-3">
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Activity className="w-4 h-4 text-[#E10600]" />
-                Recent Real-Time GitHub Commits Stream
-              </h3>
-              <p className="text-xs text-[#A3A3A3] mt-0.5">
-                Chronological feed of code commits synced from connected GitHub repositories.
-              </p>
-            </div>
-            <Link
-              href="/settings"
-              className="px-3 py-1.5 bg-[#0A0A0A] hover:bg-[#262626] border border-[#262626] text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5"
-            >
-              <GitBranch className="w-3.5 h-3.5 text-[#E10600]" /> Manage GitHub Repos
-            </Link>
-          </div>
-
-          <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
-            {commits.length === 0 ? (
-              <div className="p-8 text-center text-xs text-[#737373] bg-[#0A0A0A] rounded-xl border border-[#262626]">
-                No GitHub commits synced yet. Connect your repository under Settings!
-              </div>
-            ) : (
-              commits.map((c) => (
-                <div key={c.id} className="p-3.5 bg-[#0A0A0A] border border-[#262626] rounded-xl flex items-center justify-between gap-3 text-xs">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-[#141414] border border-[#E10600] flex items-center justify-center shrink-0 overflow-hidden">
-                      {c.author_avatar_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={c.author_avatar_url} alt={c.author_name || 'Author'} className="w-full h-full object-cover" />
-                      ) : (
-                        <GitCommit className="w-4 h-4 text-[#E10600]" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[#E10600] font-bold">{c.commit_sha.substring(0, 7)}</span>
-                        <span className="font-bold text-white line-clamp-1">{c.message}</span>
-                      </div>
-                      <p className="text-[10px] text-[#A3A3A3]">
-                        By <strong>{c.author_name || 'Developer'}</strong> • {formatDate(c.committed_at)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {c.commit_url && (
-                    <a
-                      href={c.commit_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="p-1.5 text-[#A3A3A3] hover:text-[#E10600] hover:bg-[#141414] rounded transition shrink-0"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 3: DAILY STREAKS SECTION */}
+      {/* SECTION 2: DAILY STREAKS SECTION */}
       <div className="space-y-4">
         <h2 className="text-base font-extrabold text-white tracking-tight flex items-center gap-2 border-b border-[#262626] pb-2">
           <Flame className="w-5 h-5 text-[#E10600]" />
