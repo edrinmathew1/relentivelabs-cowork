@@ -154,7 +154,6 @@ export default function ChecklistPage() {
     saveChecklistToDb(defaultTemplate);
   };
 
-  // Fair Streak Calculation: A day counts if completed >= 3 items OR completed at least 1 task!
   const calculateFairStreak = (lists: DailyChecklist[], userTasks: Task[]) => {
     const listDates = lists.filter((l) => (l.completed_count || 0) >= 3 || l.is_complete).map((l) => l.date);
     const taskDates = userTasks
@@ -278,7 +277,7 @@ export default function ChecklistPage() {
             Daily Operational Checklist & Role Standards
           </h1>
           <p className="text-xs text-[#A3A3A3] mt-1">
-            Tailored checklists for single-role and hybrid (Tech + Executive) team members.
+            Tailored checklists for tech, non-tech & hybrid roles with item deletion & fair streaks.
           </p>
         </div>
 
@@ -348,6 +347,7 @@ export default function ChecklistPage() {
             </button>
           </form>
 
+          {/* Items List with Delete Option for ANY item */}
           <div className="space-y-2">
             {items.map((item) => (
               <div
@@ -368,15 +368,14 @@ export default function ChecklistPage() {
                   <span className="text-xs font-medium">{item.label}</span>
                 </label>
 
-                {item.id.startsWith('personal_') && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveItem(item.id)}
-                    className="p-1 text-[#737373] hover:text-[#FF3B3B] rounded transition"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => handleRemoveItem(item.id)}
+                  title="Delete item from today's checklist"
+                  className="p-1 text-[#737373] hover:text-[#FF3B3B] hover:bg-[#141414] rounded transition shrink-0 ml-2"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               </div>
             ))}
           </div>
