@@ -3,12 +3,24 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { DailyChecklist, ChecklistItem, Profile, Task } from '@/types';
-import { CheckSquare, Flame, Calendar, ArrowRight, CheckCircle2, Plus, Trash2, Laptop, Palette, TrendingUp, Shield } from 'lucide-react';
+import { CheckSquare, Flame, Calendar, ArrowRight, CheckCircle2, Plus, Trash2, Laptop, Palette, TrendingUp, Shield, Zap } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
-type RoleCategory = 'engineering' | 'operations' | 'design' | 'management';
+type RoleCategory = 'hybrid' | 'engineering' | 'management' | 'operations' | 'design';
 
 const ROLE_TEMPLATES: Record<RoleCategory, { name: string; icon: any; items: string[] }> = {
+  hybrid: {
+    name: 'Hybrid (Tech + Executive) ⚡',
+    icon: Zap,
+    items: [
+      'Review assigned GitHub pull requests & issue queue',
+      'Review team workload distribution & task allocation',
+      'Sync task status & estimated hours on project board',
+      'Check OKR goals status & company milestones',
+      'Commit clean, tested code with clear commit message',
+      'Log daily executive & engineering work summary',
+    ],
+  },
   engineering: {
     name: 'Engineering & Tech 💻',
     icon: Laptop,
@@ -18,6 +30,17 @@ const ROLE_TEMPLATES: Record<RoleCategory, { name: string; icon: any; items: str
       'Commit clean, tested code with clear commit message',
       'Log daily work summary & hours in Relentive OS',
       'Clear urgent blockings & respond to @mentions',
+    ],
+  },
+  management: {
+    name: 'Executive & Admin ⚡',
+    icon: Shield,
+    items: [
+      'Review team workload distribution & task allocation',
+      'Check OKR goals status & company milestones',
+      'Review client progress & generate weekly digest report',
+      'Unblock team members & respond to @mentions',
+      'Log executive daily operational summary',
     ],
   },
   operations: {
@@ -42,21 +65,10 @@ const ROLE_TEMPLATES: Record<RoleCategory, { name: string; icon: any; items: str
       'Clear urgent design reviews & @mentions',
     ],
   },
-  management: {
-    name: 'Executive & Admin ⚡',
-    icon: Shield,
-    items: [
-      'Review team workload distribution & task allocation',
-      'Check OKR goals status & company milestones',
-      'Review client progress & generate weekly digest report',
-      'Unblock team members & respond to @mentions',
-      'Log executive daily operational summary',
-    ],
-  },
 };
 
 export default function ChecklistPage() {
-  const [selectedRole, setSelectedRole] = useState<RoleCategory>('engineering');
+  const [selectedRole, setSelectedRole] = useState<RoleCategory>('hybrid');
   const [checklist, setChecklist] = useState<DailyChecklist | null>(null);
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [carriedOverItems, setCarriedOverItems] = useState<ChecklistItem[]>([]);
@@ -71,7 +83,7 @@ export default function ChecklistPage() {
   const todayStr = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
-    const savedRole = (localStorage.getItem('relentive_checklist_role') as RoleCategory) || 'engineering';
+    const savedRole = (localStorage.getItem('relentive_checklist_role') as RoleCategory) || 'hybrid';
     setSelectedRole(savedRole);
     loadChecklistData(savedRole);
   }, []);
@@ -266,7 +278,7 @@ export default function ChecklistPage() {
             Daily Operational Checklist & Role Standards
           </h1>
           <p className="text-xs text-[#A3A3A3] mt-1">
-            Tailored checklists for tech & non-tech team members with fair streak tracking.
+            Tailored checklists for single-role and hybrid (Tech + Executive) team members.
           </p>
         </div>
 
@@ -283,7 +295,7 @@ export default function ChecklistPage() {
       {/* Role Template Selector Tabs */}
       <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl space-y-3 shadow-xl">
         <h3 className="text-xs font-bold text-white uppercase tracking-wider">Choose Your Work Role Template</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           {(Object.keys(ROLE_TEMPLATES) as RoleCategory[]).map((roleKey) => {
             const tmpl = ROLE_TEMPLATES[roleKey];
             const Icon = tmpl.icon;
