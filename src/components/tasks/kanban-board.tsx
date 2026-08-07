@@ -22,7 +22,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, TaskStatus } from '@/types';
-import { Plus, Clock, Flame, Trash2 } from 'lucide-react';
+import { Plus, Clock, Flame, Trash2, Users } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 interface KanbanBoardProps {
@@ -50,6 +50,12 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
     transition,
     opacity: isDragging ? 0.3 : 1,
   };
+
+  const assigneeCount = task.assignee_ids && task.assignee_ids.length > 0
+    ? task.assignee_ids.length
+    : task.assignee_id
+    ? 1
+    : 0;
 
   return (
     <div
@@ -80,9 +86,15 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
           <Clock className="w-3 h-3 text-[#737373]" />
           <span>{formatDate(task.due_date)}</span>
         </div>
-        <span className="font-semibold text-white">
-          {task.assignee?.full_name?.split(' ')[0] || 'Unassigned'}
-        </span>
+        <div className="font-semibold text-white flex items-center gap-1">
+          {assigneeCount > 1 ? (
+            <span className="bg-[#E10600]/20 text-[#FF3B3B] px-1.5 py-0.5 rounded border border-[#E10600]/40 flex items-center gap-1 font-bold">
+              <Users className="w-2.5 h-2.5" /> {assigneeCount} Assigned
+            </span>
+          ) : (
+            <span>{task.assignee?.full_name?.split(' ')[0] || 'Unassigned'}</span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -162,7 +174,6 @@ function TrashDropZone() {
   );
 }
 
-// Custom collision detection prioritizing Trash drop zone if intersected
 const customCollisionDetection: CollisionDetection = (args) => {
   const trashIntersection = rectIntersection({
     ...args,
@@ -199,7 +210,6 @@ export function KanbanBoard({ tasks, onTaskMove, onTaskClick, onAddTask, onTaskD
     const taskId = active.id as string;
     const overId = over.id as string;
 
-    // Handle Drop to Delete
     if (overId === 'trash-dropzone') {
       if (onTaskDelete) {
         onTaskDelete(taskId);
@@ -241,7 +251,6 @@ export function KanbanBoard({ tasks, onTaskMove, onTaskClick, onAddTask, onTaskD
           ))}
         </div>
 
-        {/* Drag and Drop Trash Delete Area */}
         <TrashDropZone />
       </div>
 

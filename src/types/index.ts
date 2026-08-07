@@ -48,6 +48,8 @@ export interface Task {
   priority: TaskPriority;
   assignee_id?: string;
   assignee?: Profile;
+  assignee_ids?: string[];
+  assignees?: Profile[];
   created_by?: string;
   creator?: Profile;
   due_date?: string;

@@ -3,10 +3,60 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { DailyChecklist, ChecklistItem, Profile, Task } from '@/types';
-import { CheckSquare, Flame, Calendar, ArrowRight, CheckCircle2, Plus, Edit2, Trash2 } from 'lucide-react';
+import { CheckSquare, Flame, Calendar, ArrowRight, CheckCircle2, Plus, Trash2, Laptop, Palette, TrendingUp, Shield } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
+type RoleCategory = 'engineering' | 'operations' | 'design' | 'management';
+
+const ROLE_TEMPLATES: Record<RoleCategory, { name: string; icon: any; items: string[] }> = {
+  engineering: {
+    name: 'Engineering & Tech 💻',
+    icon: Laptop,
+    items: [
+      'Review assigned GitHub pull requests & issue queue',
+      'Sync task status & estimated hours on project board',
+      'Commit clean, tested code with clear commit message',
+      'Log daily work summary & hours in Relentive OS',
+      'Clear urgent blockings & respond to @mentions',
+    ],
+  },
+  operations: {
+    name: 'Operations & Sales 📈',
+    icon: TrendingUp,
+    items: [
+      'Review client leads, inquiries & active pipeline',
+      'Update project target dates & status on agency board',
+      'Clear high-priority messages & client communications',
+      'Log daily work summary & operational updates',
+      'Check OKR goals progress & team blockers',
+    ],
+  },
+  design: {
+    name: 'Design & Creative 🎨',
+    icon: Palette,
+    items: [
+      'Review design feedback & asset requests',
+      'Sync Figma component updates & UI deliverables',
+      'Update task progress & upload brand docs',
+      'Log daily creative work summary & hours',
+      'Clear urgent design reviews & @mentions',
+    ],
+  },
+  management: {
+    name: 'Executive & Admin ⚡',
+    icon: Shield,
+    items: [
+      'Review team workload distribution & task allocation',
+      'Check OKR goals status & company milestones',
+      'Review client progress & generate weekly digest report',
+      'Unblock team members & respond to @mentions',
+      'Log executive daily operational summary',
+    ],
+  },
+};
+
 export default function ChecklistPage() {
+  const [selectedRole, setSelectedRole] = useState<RoleCategory>('engineering');
   const [checklist, setChecklist] = useState<DailyChecklist | null>(null);
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [carriedOverItems, setCarriedOverItems] = useState<ChecklistItem[]>([]);
@@ -15,22 +65,18 @@ export default function ChecklistPage() {
   const [streakDays, setStreakDays] = useState(0);
   const [profile, setProfile] = useState<Profile | null>(null);
 
-  // Add Personal Item State
   const [newPersonalLabel, setNewPersonalLabel] = useState('');
-
-  // Admin Template Edit Modal State
-  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
-  const [templateItems, setTemplateItems] = useState<string[]>([]);
-  const [newTemplateInput, setNewTemplateInput] = useState('');
 
   const supabase = createClient();
   const todayStr = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
-    loadChecklistData();
+    const savedRole = (localStorage.getItem('relentive_checklist_role') as RoleCategory) || 'engineering';
+    setSelectedRole(savedRole);
+    loadChecklistData(savedRole);
   }, []);
 
-  const loadChecklistData = async () => {
+  const loadChecklistData = async (role: RoleCategory = selectedRole) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
@@ -42,11 +88,9 @@ export default function ChecklistPage() {
         .single();
       if (profileData) setProfile(profileData as Profile);
 
-      // Load tasks for unified streak calculation
       const { data: userTasks } = await supabase.from('tasks').select('*').eq('assignee_id', session.user.id);
       if (userTasks) setTasks(userTasks as Task[]);
 
-      // Load all checklists for user
       const { data: userLists } = await supabase
         .from('daily_checklists')
         .select('*')
@@ -55,10 +99,9 @@ export default function ChecklistPage() {
 
       if (userLists) {
         setAllChecklists(userLists as DailyChecklist[]);
-        calculateUnifiedStreak(userLists as DailyChecklist[], (userTasks as Task[]) || []);
+        calculateFairStreak(userLists as DailyChecklist[], (userTasks as Task[]) || []);
       }
 
-      // Load today checklist
       const { data: todayList } = await supabase
         .from('daily_checklists')
         .select('*')
@@ -70,15 +113,12 @@ export default function ChecklistPage() {
         setChecklist(todayList as DailyChecklist);
         setItems(todayList.items as ChecklistItem[]);
       } else {
-        // Load default template items from DB or fallback
-        const defaultItems: ChecklistItem[] = [
-          { id: '1', label: 'Review assigned GitHub pull requests & issue queue', completed: false },
-          { id: '2', label: 'Sync task status & estimated hours on project board', completed: false },
-          { id: '3', label: 'Commit clean, tested code with clear commit message', completed: false },
-          { id: '4', label: 'Log daily work summary & hours in Relentive OS', completed: false },
-          { id: '5', label: 'Clear urgent blockings & respond to @mentions', completed: false },
-        ];
-        setItems(defaultItems);
+        const defaultTemplate = ROLE_TEMPLATES[role].items.map((label, idx) => ({
+          id: `item_${idx + 1}`,
+          label,
+          completed: false,
+        }));
+        setItems(defaultTemplate);
       }
 
       if (userLists) {
@@ -89,8 +129,22 @@ export default function ChecklistPage() {
     }
   };
 
-  const calculateUnifiedStreak = (lists: DailyChecklist[], userTasks: Task[]) => {
-    const listDates = lists.filter((l) => l.is_complete).map((l) => l.date);
+  const handleRoleChange = (role: RoleCategory) => {
+    setSelectedRole(role);
+    localStorage.setItem('relentive_checklist_role', role);
+
+    const defaultTemplate = ROLE_TEMPLATES[role].items.map((label, idx) => ({
+      id: `item_${idx + 1}`,
+      label,
+      completed: false,
+    }));
+    setItems(defaultTemplate);
+    saveChecklistToDb(defaultTemplate);
+  };
+
+  // Fair Streak Calculation: A day counts if completed >= 3 items OR completed at least 1 task!
+  const calculateFairStreak = (lists: DailyChecklist[], userTasks: Task[]) => {
+    const listDates = lists.filter((l) => (l.completed_count || 0) >= 3 || l.is_complete).map((l) => l.date);
     const taskDates = userTasks
       .filter((t) => t.status === 'done' && t.updated_at)
       .map((t) => t.updated_at.split('T')[0]);
@@ -136,7 +190,6 @@ export default function ChecklistPage() {
     await saveChecklistToDb(updatedItems);
   };
 
-  // Add Custom Personal Item
   const handleAddPersonalItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPersonalLabel.trim()) return;
@@ -185,10 +238,9 @@ export default function ChecklistPage() {
     }
   };
 
-  // Contribution Heatmap Grid
   const generateHeatmapGrid = () => {
     const cells = [];
-    const completedSet = new Set(allChecklists.filter((l) => l.is_complete).map((l) => l.date));
+    const completedSet = new Set(allChecklists.filter((l) => (l.completed_count || 0) >= 3 || l.is_complete).map((l) => l.date));
 
     for (let i = 89; i >= 0; i--) {
       const d = new Date();
@@ -211,10 +263,10 @@ export default function ChecklistPage() {
         <div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
             <CheckSquare className="w-6 h-6 text-[#E10600]" />
-            Daily Engineering Standards & Personal Checklist
+            Daily Operational Checklist & Role Standards
           </h1>
           <p className="text-xs text-[#A3A3A3] mt-1">
-            Maintain daily operational excellence, personal tasks, streak momentum & track progress.
+            Tailored checklists for tech & non-tech team members with fair streak tracking.
           </p>
         </div>
 
@@ -228,9 +280,35 @@ export default function ChecklistPage() {
         </div>
       </div>
 
-      {/* Today Checklist & Carried Over Column */}
+      {/* Role Template Selector Tabs */}
+      <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl space-y-3 shadow-xl">
+        <h3 className="text-xs font-bold text-white uppercase tracking-wider">Choose Your Work Role Template</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {(Object.keys(ROLE_TEMPLATES) as RoleCategory[]).map((roleKey) => {
+            const tmpl = ROLE_TEMPLATES[roleKey];
+            const Icon = tmpl.icon;
+            const isSelected = selectedRole === roleKey;
+
+            return (
+              <button
+                key={roleKey}
+                onClick={() => handleRoleChange(roleKey)}
+                className={`p-3 rounded-lg border font-bold text-xs flex items-center gap-2 transition ${
+                  isSelected
+                    ? 'bg-[#0A0A0A] border-[#E10600] text-white shadow-md shadow-[#E10600]/20'
+                    : 'bg-[#0A0A0A] border-[#262626] text-[#A3A3A3] hover:text-white'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isSelected ? 'text-[#E10600]' : 'text-[#737373]'}`} />
+                <span className="truncate">{tmpl.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Today Checklist Column */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Today's Main Checklist */}
         <div className="lg:col-span-2 bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-2xl space-y-4">
           <div className="flex items-center justify-between border-b border-[#262626] pb-3">
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
@@ -242,13 +320,12 @@ export default function ChecklistPage() {
             </span>
           </div>
 
-          {/* Add Custom Personal Item Form */}
           <form onSubmit={handleAddPersonalItem} className="flex gap-2 p-2 bg-[#0A0A0A] border border-[#262626] rounded-xl">
             <input
               type="text"
               value={newPersonalLabel}
               onChange={(e) => setNewPersonalLabel(e.target.value)}
-              placeholder="+ Add a custom personal daily checklist item..."
+              placeholder="+ Add a custom personal daily item..."
               className="flex-1 bg-transparent px-2 text-xs text-white outline-none placeholder-[#525252]"
             />
             <button
@@ -259,7 +336,6 @@ export default function ChecklistPage() {
             </button>
           </form>
 
-          {/* Items List */}
           <div className="space-y-2">
             {items.map((item) => (
               <div
@@ -294,9 +370,8 @@ export default function ChecklistPage() {
           </div>
         </div>
 
-        {/* Carried Over & Heatmap Info */}
+        {/* Sidebar Info */}
         <div className="space-y-4">
-          {/* Carried Over Incomplete Items */}
           <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-[#A3A3A3] flex items-center gap-1.5">
               <ArrowRight className="w-3.5 h-3.5 text-[#E10600]" /> Carried Over Items
@@ -314,7 +389,6 @@ export default function ChecklistPage() {
             )}
           </div>
 
-          {/* GitHub-Style Contribution Heatmap */}
           <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 shadow-xl space-y-3">
             <h3 className="text-xs font-bold text-white flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-[#E10600]" />

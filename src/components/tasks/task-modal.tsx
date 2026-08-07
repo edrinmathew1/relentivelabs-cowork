@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Task, Profile, TaskComment, TaskActivityLog, TaskPriority, TaskStatus, GitHubCommit } from '@/types';
 import { TiptapEditor } from '@/components/ui/tiptap-editor';
-import { X, Calendar, User, Clock, Tag, MessageSquare, History, CheckCircle2, AlertTriangle, Send, GitCommit, ExternalLink } from 'lucide-react';
+import { X, Calendar, User, Clock, Tag, MessageSquare, History, CheckCircle2, AlertTriangle, Send, GitCommit, ExternalLink, Users } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 interface TaskModalProps {
@@ -28,7 +28,7 @@ export function TaskModal({
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<TaskStatus>('todo');
   const [priority, setPriority] = useState<TaskPriority>('medium');
-  const [assigneeId, setAssigneeId] = useState<string>('');
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState<string>('');
   const [estimatedHours, setEstimatedHours] = useState<number>(0);
   const [actualHours, setActualHours] = useState<number>(0);
@@ -49,7 +49,14 @@ export function TaskModal({
       setDescription(task.description || '');
       setStatus(task.status || 'todo');
       setPriority(task.priority || 'medium');
-      setAssigneeId(task.assignee_id || '');
+
+      const initialAssignees = task.assignee_ids && task.assignee_ids.length > 0
+        ? task.assignee_ids
+        : task.assignee_id
+        ? [task.assignee_id]
+        : [];
+      setAssigneeIds(initialAssignees);
+
       setDueDate(task.due_date || '');
       setEstimatedHours(task.estimated_hours || 0);
       setActualHours(task.actual_hours || 0);
@@ -90,12 +97,17 @@ export function TaskModal({
 
   if (!isOpen || !task) return null;
 
+  const toggleAssignee = (userId: string) => {
+    setAssigneeIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
+
   const handleSave = async () => {
     setSaving(true);
     const tags = tagsStr.split(',').map((t) => t.trim()).filter(Boolean);
 
-    const statusChanged = task.status !== status;
-    const assigneeChanged = task.assignee_id !== assigneeId;
+    const primaryAssigneeId = assigneeIds.length > 0 ? assigneeIds[0] : null;
 
     const { error } = await supabase
       .from('tasks')
@@ -104,7 +116,8 @@ export function TaskModal({
         description,
         status,
         priority,
-        assignee_id: assigneeId || null,
+        assignee_id: primaryAssigneeId,
+        assignee_ids: assigneeIds,
         due_date: dueDate || null,
         estimated_hours: Number(estimatedHours),
         actual_hours: Number(actualHours),
@@ -113,25 +126,10 @@ export function TaskModal({
       .eq('id', task.id);
 
     if (!error) {
-      if (statusChanged && currentUserId) {
-        await supabase.from('task_activity_log').insert({
-          task_id: task.id,
-          actor_id: currentUserId,
-          action: `status_changed`,
-          meta: { from: task.status, to: status },
-        });
-      }
-      if (assigneeChanged && currentUserId) {
-        await supabase.from('task_activity_log').insert({
-          task_id: task.id,
-          actor_id: currentUserId,
-          action: `reassigned`,
-          meta: { assignee_id: assigneeId },
-        });
-
-        if (assigneeId) {
+      for (const aId of assigneeIds) {
+        if (!task.assignee_ids?.includes(aId)) {
           await supabase.from('notifications').insert({
-            user_id: assigneeId,
+            user_id: aId,
             type: 'task_assigned',
             payload: {
               title: 'Task Assigned',
@@ -413,22 +411,37 @@ export function TaskModal({
               </select>
             </div>
 
+            {/* Multiple Assignees Selector */}
             <div>
-              <label className="block text-[11px] font-semibold text-[#737373] uppercase tracking-wider mb-1">
-                Assignee
+              <label className="block text-[11px] font-semibold text-[#737373] uppercase tracking-wider mb-1 flex items-center justify-between">
+                <span>Assignees ({assigneeIds.length})</span>
+                <Users className="w-3 h-3 text-[#E10600]" />
               </label>
-              <select
-                value={assigneeId}
-                onChange={(e) => setAssigneeId(e.target.value)}
-                className="w-full bg-[#141414] border border-[#262626] focus:border-[#E10600] text-white rounded-lg p-2 text-xs outline-none"
-              >
-                <option value="">Unassigned</option>
-                {teamMembers.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.full_name} ({m.role})
-                  </option>
-                ))}
-              </select>
+              <div className="p-2 bg-[#141414] border border-[#262626] rounded-lg max-h-36 overflow-y-auto space-y-1.5">
+                {teamMembers.map((m) => {
+                  const isSelected = assigneeIds.includes(m.id);
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => toggleAssignee(m.id)}
+                      className={`w-full flex items-center justify-between p-1.5 rounded text-xs transition ${
+                        isSelected
+                          ? 'bg-[#E10600]/20 border border-[#E10600] text-white font-bold'
+                          : 'bg-[#0A0A0A] border border-[#262626] text-[#A3A3A3] hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <div className="w-4 h-4 rounded-full bg-[#262626] flex items-center justify-center text-[9px] text-white shrink-0">
+                          {m.full_name.substring(0, 1).toUpperCase()}
+                        </div>
+                        <span className="truncate">{m.full_name}</span>
+                      </div>
+                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-[#E10600] shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div>

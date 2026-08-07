@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS public.project_members (
 );
 
 -- --------------------------------------------------------
--- 4. TASKS
+-- 4. TASKS (Supports Multiple Assignees via assignee_ids)
 -- --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS public.tasks (
   status TEXT CHECK (status IN ('backlog', 'todo', 'in_progress', 'review', 'done')) DEFAULT 'todo',
   priority TEXT CHECK (priority IN ('low', 'medium', 'high', 'urgent')) DEFAULT 'medium',
   assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  assignee_ids UUID[] DEFAULT '{}',
   created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   due_date DATE,
   estimated_hours NUMERIC DEFAULT 0,
@@ -417,7 +418,7 @@ DROP POLICY IF EXISTS "GitHub Commits access" ON public.github_commits;
 CREATE POLICY "GitHub Commits access" ON public.github_commits
   FOR ALL USING (auth.role() = 'authenticated');
 
--- Safely add tables to Realtime publication without duplicate error
+-- Realtime Publications
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -426,30 +427,6 @@ BEGIN
       AND prrelid = 'public.tasks'::regclass
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_rel
-    WHERE prpubid = (SELECT oid FROM pg_publication WHERE pubname = 'supabase_realtime')
-      AND prrelid = 'public.notifications'::regclass
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_rel
-    WHERE prpubid = (SELECT oid FROM pg_publication WHERE pubname = 'supabase_realtime')
-      AND prrelid = 'public.events'::regclass
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.events;
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_rel
-    WHERE prpubid = (SELECT oid FROM pg_publication WHERE pubname = 'supabase_realtime')
-      AND prrelid = 'public.github_commits'::regclass
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.github_commits;
   END IF;
 EXCEPTION
   WHEN OTHERS THEN NULL;
