@@ -40,6 +40,7 @@ export function TaskModal({
   const [newComment, setNewComment] = useState('');
   const [activeTab, setActiveTab] = useState<'comments' | 'commits' | 'activity'>('comments');
   const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const supabase = createClient();
 
@@ -61,6 +62,7 @@ export function TaskModal({
       setEstimatedHours(task.estimated_hours || 0);
       setActualHours(task.actual_hours || 0);
       setTagsStr((task.tags || []).join(', '));
+      setErrorMsg(null);
 
       fetchCommentsAndActivity(task.id);
     }
@@ -105,11 +107,12 @@ export function TaskModal({
 
   const handleSave = async () => {
     setSaving(true);
+    setErrorMsg(null);
     const tags = tagsStr.split(',').map((t) => t.trim()).filter(Boolean);
-
     const primaryAssigneeId = assigneeIds.length > 0 ? assigneeIds[0] : null;
 
-    const { error } = await supabase
+    // Try updating with assignee_ids array
+    let { error } = await supabase
       .from('tasks')
       .update({
         title,
@@ -124,6 +127,27 @@ export function TaskModal({
         tags,
       })
       .eq('id', task.id);
+
+    // Fallback if assignee_ids column hasn't been added to Supabase DB yet
+    if (error) {
+      console.warn('Assignee_ids update failed, attempting standard update fallback:', error.message);
+      const { error: fallbackErr } = await supabase
+        .from('tasks')
+        .update({
+          title,
+          description,
+          status,
+          priority,
+          assignee_id: primaryAssigneeId,
+          due_date: dueDate || null,
+          estimated_hours: Number(estimatedHours),
+          actual_hours: Number(actualHours),
+          tags,
+        })
+        .eq('id', task.id);
+
+      error = fallbackErr;
+    }
 
     if (!error) {
       for (const aId of assigneeIds) {
@@ -144,6 +168,8 @@ export function TaskModal({
       setSaving(false);
       onClose();
     } else {
+      console.error('Task save error:', error);
+      setErrorMsg(error.message || 'Failed to save task.');
       setSaving(false);
     }
   };
@@ -215,6 +241,13 @@ export function TaskModal({
             </button>
           </div>
         </div>
+
+        {errorMsg && (
+          <div className="p-3 bg-[#7A0000]/30 border-b border-[#E10600] text-red-200 text-xs flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-[#E10600] shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
