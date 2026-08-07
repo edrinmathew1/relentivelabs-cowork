@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -32,6 +33,13 @@ export function TiptapEditor({
     },
   });
 
+  // Keep TipTap editor content in sync when task content prop changes
+  useEffect(() => {
+    if (editor && content !== editor.getHTML()) {
+      editor.commands.setContent(content || '');
+    }
+  }, [content, editor]);
+
   if (!editor) {
     return null;
   }
@@ -52,7 +60,7 @@ export function TiptapEditor({
             onClick={() => editor.chain().focus().toggleItalic().run()}
             className={`p-1.5 rounded hover:bg-[#262626] ${editor.isActive('italic') ? 'text-[#E10600] bg-[#262626]' : 'text-[#737373]'}`}
           >
-            <Italic className="w-3.5 h-3.5" />
+            <Italic className="w-3.5 h-[#3.5]" />
           </button>
           <button
             type="button"
