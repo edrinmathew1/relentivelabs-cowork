@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Profile, Project, GitHubRepo } from '@/types';
 import { useTheme } from '@/components/providers/theme-provider';
+import { ROLE_TEMPLATES, RoleCategory } from '@/lib/role-templates';
 import {
   Settings as SettingsIcon,
   User,
@@ -20,13 +21,12 @@ import {
   Link as LinkIcon,
   Bell,
   Palette,
-  Shield,
-  Laptop,
+  CheckSquare,
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'account' | 'theme' | 'github' | 'notifications'>('account');
+  const [activeTab, setActiveTab] = useState<'account' | 'template' | 'theme' | 'github' | 'notifications'>('account');
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -36,6 +36,9 @@ export default function SettingsPage() {
   const [title, setTitle] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [timezone, setTimezone] = useState('Asia/Kolkata');
+
+  // Work Role Template Choice
+  const [selectedRoleTemplate, setSelectedRoleTemplate] = useState<RoleCategory>('hybrid');
 
   // GitHub Integration Form State
   const [selectedProjectId, setSelectedProjectId] = useState('');
@@ -60,6 +63,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchProfileAndIntegrations();
+    const savedTemplate = (localStorage.getItem('relentive_checklist_role') as RoleCategory) || 'hybrid';
+    setSelectedRoleTemplate(savedTemplate);
   }, []);
 
   const fetchProfileAndIntegrations = async () => {
@@ -90,6 +95,13 @@ export default function SettingsPage() {
     } catch (err) {
       console.error('Fetch profile/integrations error:', err);
     }
+  };
+
+  const handleRoleTemplateChange = (roleKey: RoleCategory) => {
+    setSelectedRoleTemplate(roleKey);
+    localStorage.setItem('relentive_checklist_role', roleKey);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
   };
 
   const handleConnectGitHubRepo = async (e: React.FormEvent) => {
@@ -258,7 +270,7 @@ export default function SettingsPage() {
           Workspace Settings Panel
         </h1>
         <p className="text-xs text-[#A3A3A3] mt-1">
-          Organized settings control panel for account identity, GitHub integrations, theme & notifications.
+          Organized settings control panel for account identity, work role templates, GitHub & preferences.
         </p>
       </div>
 
@@ -296,6 +308,17 @@ export default function SettingsPage() {
             }`}
           >
             <User className="w-4 h-4" /> Account & Profile
+          </button>
+
+          <button
+            onClick={() => setActiveTab('template')}
+            className={`w-full p-2.5 rounded-lg text-xs font-bold flex items-center gap-2.5 transition ${
+              activeTab === 'template'
+                ? 'bg-[#E10600] text-white shadow-md'
+                : 'text-[#A3A3A3] hover:text-white hover:bg-[#0A0A0A]'
+            }`}
+          >
+            <CheckSquare className="w-4 h-4" /> Role & Daily Checklist
           </button>
 
           <button
@@ -446,7 +469,57 @@ export default function SettingsPage() {
           </form>
         )}
 
-        {/* Tab 2: Theme & Appearance */}
+        {/* Tab 2: Work Role & Daily Checklist Template */}
+        {activeTab === 'template' && (
+          <div className="md:col-span-3 bg-[#141414] border border-[#262626] rounded-xl p-6 shadow-2xl space-y-5">
+            <div className="border-b border-[#262626] pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <CheckSquare className="w-4 h-4 text-[#E10600]" /> Work Role & Daily Checklist Template
+              </h3>
+              <p className="text-xs text-[#A3A3A3]">
+                Select your primary agency role. Your choice is remembered and populates your daily checklist automatically every day.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {(Object.keys(ROLE_TEMPLATES) as RoleCategory[]).map((roleKey) => {
+                const tmpl = ROLE_TEMPLATES[roleKey];
+                const Icon = tmpl.icon;
+                const isSelected = selectedRoleTemplate === roleKey;
+
+                return (
+                  <button
+                    key={roleKey}
+                    type="button"
+                    onClick={() => handleRoleTemplateChange(roleKey)}
+                    className={`w-full p-4 rounded-xl border text-left flex items-start gap-4 transition ${
+                      isSelected
+                        ? 'bg-[#0A0A0A] border-[#E10600] shadow-xl shadow-[#E10600]/10 ring-1 ring-[#E10600]'
+                        : 'bg-[#0A0A0A] border-[#262626] hover:border-[#737373]'
+                    }`}
+                  >
+                    <div className={`p-2.5 rounded-lg border shrink-0 ${isSelected ? 'bg-[#E10600]/20 border-[#E10600] text-[#E10600]' : 'bg-[#141414] border-[#262626] text-[#737373]'}`}>
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-0.5 flex-1">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-white">{tmpl.name}</h4>
+                        {isSelected && (
+                          <span className="text-[10px] font-bold text-white bg-[#E10600] px-2 py-0.5 rounded shadow">
+                            Active Template
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-[#A3A3A3]">{tmpl.description}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: Theme & Appearance */}
         {activeTab === 'theme' && (
           <div className="md:col-span-3 bg-[#141414] border border-[#262626] rounded-xl p-6 shadow-2xl space-y-5">
             <div className="border-b border-[#262626] pb-3">
@@ -494,7 +567,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Tab 3: GitHub & Integrations */}
+        {/* Tab 4: GitHub & Integrations */}
         {activeTab === 'github' && (
           <div className="md:col-span-3 bg-[#141414] border border-[#262626] rounded-xl p-6 shadow-2xl space-y-5">
             <div className="border-b border-[#262626] pb-3">
@@ -601,7 +674,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Tab 4: Notifications & Preferences */}
+        {/* Tab 5: Notifications & Preferences */}
         {activeTab === 'notifications' && (
           <div className="md:col-span-3 bg-[#141414] border border-[#262626] rounded-xl p-6 shadow-2xl space-y-5">
             <div className="border-b border-[#262626] pb-3">

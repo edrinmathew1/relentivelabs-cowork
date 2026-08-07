@@ -3,69 +3,9 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { DailyChecklist, ChecklistItem, Profile, Task } from '@/types';
-import { CheckSquare, Flame, Calendar, ArrowRight, CheckCircle2, Plus, Trash2, Laptop, Palette, TrendingUp, Shield, Zap } from 'lucide-react';
+import { ROLE_TEMPLATES, RoleCategory } from '@/lib/role-templates';
+import { CheckSquare, Flame, Calendar, ArrowRight, CheckCircle2, Plus, Trash2, Repeat } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
-
-type RoleCategory = 'hybrid' | 'engineering' | 'management' | 'operations' | 'design';
-
-const ROLE_TEMPLATES: Record<RoleCategory, { name: string; icon: any; items: string[] }> = {
-  hybrid: {
-    name: 'Hybrid (Tech + Executive) ⚡',
-    icon: Zap,
-    items: [
-      'Review assigned GitHub pull requests & issue queue',
-      'Review team workload distribution & task allocation',
-      'Sync task status & estimated hours on project board',
-      'Check OKR goals status & company milestones',
-      'Commit clean, tested code with clear commit message',
-      'Log daily executive & engineering work summary',
-    ],
-  },
-  engineering: {
-    name: 'Engineering & Tech 💻',
-    icon: Laptop,
-    items: [
-      'Review assigned GitHub pull requests & issue queue',
-      'Sync task status & estimated hours on project board',
-      'Commit clean, tested code with clear commit message',
-      'Log daily work summary & hours in Relentive OS',
-      'Clear urgent blockings & respond to @mentions',
-    ],
-  },
-  management: {
-    name: 'Executive & Admin ⚡',
-    icon: Shield,
-    items: [
-      'Review team workload distribution & task allocation',
-      'Check OKR goals status & company milestones',
-      'Review client progress & generate weekly digest report',
-      'Unblock team members & respond to @mentions',
-      'Log executive daily operational summary',
-    ],
-  },
-  operations: {
-    name: 'Operations & Sales 📈',
-    icon: TrendingUp,
-    items: [
-      'Review client leads, inquiries & active pipeline',
-      'Update project target dates & status on agency board',
-      'Clear high-priority messages & client communications',
-      'Log daily work summary & operational updates',
-      'Check OKR goals progress & team blockers',
-    ],
-  },
-  design: {
-    name: 'Design & Creative 🎨',
-    icon: Palette,
-    items: [
-      'Review design feedback & asset requests',
-      'Sync Figma component updates & UI deliverables',
-      'Update task progress & upload brand docs',
-      'Log daily creative work summary & hours',
-      'Clear urgent design reviews & @mentions',
-    ],
-  },
-};
 
 export default function ChecklistPage() {
   const [selectedRole, setSelectedRole] = useState<RoleCategory>('hybrid');
@@ -77,7 +17,9 @@ export default function ChecklistPage() {
   const [streakDays, setStreakDays] = useState(0);
   const [profile, setProfile] = useState<Profile | null>(null);
 
+  // Personal Item & Recurring State
   const [newPersonalLabel, setNewPersonalLabel] = useState('');
+  const [isRecurring, setIsRecurring] = useState(false);
 
   const supabase = createClient();
   const todayStr = new Date().toISOString().split('T')[0];
@@ -125,12 +67,25 @@ export default function ChecklistPage() {
         setChecklist(todayList as DailyChecklist);
         setItems(todayList.items as ChecklistItem[]);
       } else {
-        const defaultTemplate = ROLE_TEMPLATES[role].items.map((label, idx) => ({
+        // Build fresh daily checklist combining Role Template + Recurring Personal Items
+        const roleItems = ROLE_TEMPLATES[role].items.map((label, idx) => ({
           id: `item_${idx + 1}`,
           label,
           completed: false,
         }));
-        setItems(defaultTemplate);
+
+        const recurringPersonalStr = localStorage.getItem('relentive_recurring_items');
+        const recurringPersonal: string[] = recurringPersonalStr ? JSON.parse(recurringPersonalStr) : [];
+
+        const recurringItems = recurringPersonal.map((label, idx) => ({
+          id: `recurring_${idx + 1}_${Date.now()}`,
+          label: `[Recurring] ${label}`,
+          completed: false,
+        }));
+
+        const combinedDefault = [...roleItems, ...recurringItems];
+        setItems(combinedDefault);
+        saveChecklistToDb(combinedDefault);
       }
 
       if (userLists) {
@@ -139,19 +94,6 @@ export default function ChecklistPage() {
     } catch (err) {
       console.error('Load checklist error:', err);
     }
-  };
-
-  const handleRoleChange = (role: RoleCategory) => {
-    setSelectedRole(role);
-    localStorage.setItem('relentive_checklist_role', role);
-
-    const defaultTemplate = ROLE_TEMPLATES[role].items.map((label, idx) => ({
-      id: `item_${idx + 1}`,
-      label,
-      completed: false,
-    }));
-    setItems(defaultTemplate);
-    saveChecklistToDb(defaultTemplate);
   };
 
   const calculateFairStreak = (lists: DailyChecklist[], userTasks: Task[]) => {
@@ -205,19 +147,43 @@ export default function ChecklistPage() {
     e.preventDefault();
     if (!newPersonalLabel.trim()) return;
 
+    const labelText = newPersonalLabel.trim();
+    const tagPrefix = isRecurring ? '[Recurring]' : '[Personal]';
+
     const newItem: ChecklistItem = {
-      id: `personal_${Date.now()}`,
-      label: `[Personal] ${newPersonalLabel.trim()}`,
+      id: `${isRecurring ? 'recurring' : 'personal'}_${Date.now()}`,
+      label: `${tagPrefix} ${labelText}`,
       completed: false,
     };
+
+    if (isRecurring) {
+      const existingStr = localStorage.getItem('relentive_recurring_items');
+      const existingArr: string[] = existingStr ? JSON.parse(existingStr) : [];
+      if (!existingArr.includes(labelText)) {
+        existingArr.push(labelText);
+        localStorage.setItem('relentive_recurring_items', JSON.stringify(existingArr));
+      }
+    }
 
     const updatedItems = [...items, newItem];
     setItems(updatedItems);
     setNewPersonalLabel('');
+    setIsRecurring(false);
     await saveChecklistToDb(updatedItems);
   };
 
   const handleRemoveItem = async (itemId: string) => {
+    const itemToRemove = items.find((i) => i.id === itemId);
+    if (itemToRemove && itemToRemove.label.startsWith('[Recurring]')) {
+      const cleanLabel = itemToRemove.label.replace('[Recurring] ', '').trim();
+      const existingStr = localStorage.getItem('relentive_recurring_items');
+      if (existingStr) {
+        let existingArr: string[] = JSON.parse(existingStr);
+        existingArr = existingArr.filter((l) => l !== cleanLabel);
+        localStorage.setItem('relentive_recurring_items', JSON.stringify(existingArr));
+      }
+    }
+
     const updatedItems = items.filter((i) => i.id !== itemId);
     setItems(updatedItems);
     await saveChecklistToDb(updatedItems);
@@ -274,10 +240,10 @@ export default function ChecklistPage() {
         <div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
             <CheckSquare className="w-6 h-6 text-[#E10600]" />
-            Daily Operational Checklist & Role Standards
+            Daily Operational Checklist
           </h1>
           <p className="text-xs text-[#A3A3A3] mt-1">
-            Tailored checklists for tech, non-tech & hybrid roles with item deletion & fair streaks.
+            Role Template: <strong className="text-white">{ROLE_TEMPLATES[selectedRole]?.name || 'Hybrid'}</strong> (Change in Settings)
           </p>
         </div>
 
@@ -288,33 +254,6 @@ export default function ChecklistPage() {
             <span className="text-xs font-bold text-white block">Active Daily Streak</span>
             <span className="text-sm font-extrabold text-[#FF3B3B] font-mono">{streakDays} Days</span>
           </div>
-        </div>
-      </div>
-
-      {/* Role Template Selector Tabs */}
-      <div className="p-4 bg-[#141414] border border-[#262626] rounded-xl space-y-3 shadow-xl">
-        <h3 className="text-xs font-bold text-white uppercase tracking-wider">Choose Your Work Role Template</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-          {(Object.keys(ROLE_TEMPLATES) as RoleCategory[]).map((roleKey) => {
-            const tmpl = ROLE_TEMPLATES[roleKey];
-            const Icon = tmpl.icon;
-            const isSelected = selectedRole === roleKey;
-
-            return (
-              <button
-                key={roleKey}
-                onClick={() => handleRoleChange(roleKey)}
-                className={`p-3 rounded-lg border font-bold text-xs flex items-center gap-2 transition ${
-                  isSelected
-                    ? 'bg-[#0A0A0A] border-[#E10600] text-white shadow-md shadow-[#E10600]/20'
-                    : 'bg-[#0A0A0A] border-[#262626] text-[#A3A3A3] hover:text-white'
-                }`}
-              >
-                <Icon className={`w-4 h-4 ${isSelected ? 'text-[#E10600]' : 'text-[#737373]'}`} />
-                <span className="truncate">{tmpl.name}</span>
-              </button>
-            );
-          })}
         </div>
       </div>
 
@@ -331,20 +270,35 @@ export default function ChecklistPage() {
             </span>
           </div>
 
-          <form onSubmit={handleAddPersonalItem} className="flex gap-2 p-2 bg-[#0A0A0A] border border-[#262626] rounded-xl">
-            <input
-              type="text"
-              value={newPersonalLabel}
-              onChange={(e) => setNewPersonalLabel(e.target.value)}
-              placeholder="+ Add a custom personal daily item..."
-              className="flex-1 bg-transparent px-2 text-xs text-white outline-none placeholder-[#525252]"
-            />
-            <button
-              type="submit"
-              className="px-3 py-1.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg transition flex items-center gap-1 shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5" /> Add Personal Item
-            </button>
+          {/* Add Personal & Recurring Item Form */}
+          <form onSubmit={handleAddPersonalItem} className="p-3 bg-[#0A0A0A] border border-[#262626] rounded-xl space-y-2">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newPersonalLabel}
+                onChange={(e) => setNewPersonalLabel(e.target.value)}
+                placeholder="+ Add a custom personal daily item..."
+                className="flex-1 bg-transparent px-2 text-xs text-white outline-none placeholder-[#525252]"
+              />
+              <button
+                type="submit"
+                className="px-3 py-1.5 bg-[#E10600] hover:bg-[#FF3B3B] text-white text-xs font-bold rounded-lg transition flex items-center gap-1 shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add Item
+              </button>
+            </div>
+
+            <label className="flex items-center gap-2 text-xs text-[#A3A3A3] cursor-pointer pt-1 border-t border-[#1F1F1F]">
+              <input
+                type="checkbox"
+                checked={isRecurring}
+                onChange={(e) => setIsRecurring(e.target.checked)}
+                className="w-3.5 h-3.5 accent-[#E10600] rounded cursor-pointer"
+              />
+              <span className="flex items-center gap-1 font-semibold text-[#E5E5E5]">
+                <Repeat className="w-3 h-3 text-[#E10600]" /> Make Recurring (Appears on your checklist every day)
+              </span>
+            </label>
           </form>
 
           {/* Items List with Delete Option for ANY item */}
@@ -371,7 +325,7 @@ export default function ChecklistPage() {
                 <button
                   type="button"
                   onClick={() => handleRemoveItem(item.id)}
-                  title="Delete item from today's checklist"
+                  title="Delete item from checklist"
                   className="p-1 text-[#737373] hover:text-[#FF3B3B] hover:bg-[#141414] rounded transition shrink-0 ml-2"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
